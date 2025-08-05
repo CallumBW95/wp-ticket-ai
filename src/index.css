@@ -20,6 +20,7 @@
   --text-primary: rgba(255, 255, 255, 0.87);
   --text-secondary: rgba(255, 255, 255, 0.6);
   --border: rgba(255, 255, 255, 0.1);
+  --border-color: rgba(255, 255, 255, 0.1);
   --error: #ff6b6b;
   --success: #51cf66;
 }
@@ -35,6 +36,7 @@
     --text-primary: #213547;
     --text-secondary: #64748b;
     --border: rgba(0, 0, 0, 0.1);
+    --border-color: rgba(0, 0, 0, 0.1);
   }
 }
 

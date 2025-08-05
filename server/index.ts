@@ -1,6 +1,15 @@
+// Load environment variables first
+import dotenv from "dotenv";
+import path from "path";
+
+// Load .env from current working directory (where npm scripts are executed)
+dotenv.config({ path: path.join(process.cwd(), ".env") });
+
 import express from "express";
 import { connectToDatabase } from "./config/database.js";
 import ticketRoutes from "./routes/tickets.js";
+import mcpRoutes from "./routes/mcp.js";
+import conversationRoutes from "./routes/conversations.js";
 import { startScrapingScheduler } from "./scraper/scheduler.js";
 
 const app = express();
@@ -38,6 +47,8 @@ app.get("/health", (req, res) => {
 
 // API routes
 app.use("/api/tickets", ticketRoutes);
+app.use("/api/mcp", mcpRoutes);
+app.use("/api/conversations", conversationRoutes);
 
 // Error handling middleware
 app.use(

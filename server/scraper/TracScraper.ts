@@ -35,19 +35,24 @@ export class TracScraper {
   }
 
   async scrapeTicketsList(page = 1, maxResults = 100): Promise<number[]> {
-    const url = `${this.baseUrl}/report/40?asc=1&sort=id&page=${page}&max=${maxResults}`;
+    // Use the working query endpoint that returns server-side rendered content
+    const url = `${this.baseUrl}/query?status=!closed&order=id&desc=1&max=${maxResults}`;
     const html = await this.fetchWithDelay(url);
     const $ = cheerio.load(html);
 
     const ticketIds: number[] = [];
 
-    // Parse ticket list from the report page
-    $(".listing.tickets tbody tr").each((_, element) => {
-      const ticketLink = $(element).find("td.id a").attr("href");
+    // Parse ticket links from the query results page
+    $("a[href*='/ticket/']").each((_, element) => {
+      const ticketLink = $(element).attr("href");
       if (ticketLink) {
         const match = ticketLink.match(/\/ticket\/(\d+)/);
         if (match) {
-          ticketIds.push(parseInt(match[1]));
+          const ticketId = parseInt(match[1]);
+          // Avoid duplicates
+          if (!ticketIds.includes(ticketId)) {
+            ticketIds.push(ticketId);
+          }
         }
       }
     });
@@ -153,10 +158,10 @@ export class TracScraper {
       const $change = $(element);
       const commentId = index + 1;
 
-      const author = $change.find(".author").text().trim() || "Unknown";
-      const timestamp =
-        this.parseDate($change.find(".date").attr("title") || "") || new Date();
-      const content = $change.find(".comment .searchable").text().trim();
+      const author = $change.find(".trac-author").text().trim() || "Unknown";
+      const timestampAttr = $change.find(".time-ago a").attr("title") || "";
+      const timestamp = this.parseDate(timestampAttr) || new Date();
+      const content = $change.find(".comment.searchable").text().trim();
 
       // Extract property changes
       const changes: any[] = [];

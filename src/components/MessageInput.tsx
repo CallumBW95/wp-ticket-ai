@@ -1,26 +1,64 @@
-import { useState, KeyboardEvent } from "react";
-import { Send } from "lucide-react";
+import { useState, KeyboardEvent, useRef } from "react";
+import { Send, Loader2 } from "lucide-react";
 
 interface MessageInputProps {
   onSendMessage: (message: string) => void;
   disabled: boolean;
+  onHistoryNavigation: (direction: "up" | "down") => string | null;
 }
 
-function MessageInput({ onSendMessage, disabled }: MessageInputProps) {
+function MessageInput({
+  onSendMessage,
+  disabled,
+  onHistoryNavigation,
+}: MessageInputProps) {
   const [input, setInput] = useState("");
+  const [isNavigatingHistory, setIsNavigatingHistory] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSubmit = () => {
     const trimmedInput = input.trim();
     if (trimmedInput && !disabled) {
       onSendMessage(trimmedInput);
       setInput("");
+      setIsNavigatingHistory(false);
+
+      // Keep focus on the textarea after sending
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+        }
+      }, 0);
     }
   };
 
-  const handleKeyPress = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
+      setIsNavigatingHistory(false);
+    } else if (e.key === "ArrowUp" && !e.shiftKey) {
+      e.preventDefault();
+      const historyMessage = onHistoryNavigation("up");
+      if (historyMessage !== null) {
+        setInput(historyMessage);
+        setIsNavigatingHistory(true);
+      }
+    } else if (e.key === "ArrowDown" && !e.shiftKey) {
+      e.preventDefault();
+      const historyMessage = onHistoryNavigation("down");
+      if (historyMessage !== null) {
+        setInput(historyMessage);
+        setIsNavigatingHistory(true);
+      }
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    // Reset history navigation when user starts typing
+    if (isNavigatingHistory) {
+      setIsNavigatingHistory(false);
     }
   };
 
@@ -28,10 +66,15 @@ function MessageInput({ onSendMessage, disabled }: MessageInputProps) {
     <div className="message-input">
       <div className="input-container">
         <textarea
+          ref={textareaRef}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyPress={handleKeyPress}
-          placeholder="Ask me anything about WordPress..."
+          onChange={handleInputChange}
+          onKeyDown={handleKeyDown}
+          placeholder={
+            disabled
+              ? "WordPress AI is thinking..."
+              : "Ask me anything about WordPress... (↑↓ for history)"
+          }
           disabled={disabled}
           rows={1}
           style={{
@@ -47,12 +90,24 @@ function MessageInput({ onSendMessage, disabled }: MessageInputProps) {
           }}
         />
         <button
-          onClick={handleSubmit}
+          onClick={() => {
+            handleSubmit();
+            // Also keep focus when clicking the send button
+            setTimeout(() => {
+              if (textareaRef.current) {
+                textareaRef.current.focus();
+              }
+            }, 0);
+          }}
           disabled={disabled || !input.trim()}
           className="send-button"
-          title="Send message"
+          title={disabled ? "AI is processing..." : "Send message"}
         >
-          <Send size={20} />
+          {disabled ? (
+            <Loader2 size={20} className="loading-spinner" />
+          ) : (
+            <Send size={20} />
+          )}
         </button>
       </div>
     </div>

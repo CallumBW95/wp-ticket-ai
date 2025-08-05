@@ -1,8 +1,8 @@
 import mongoose from "mongoose";
 
-const MONGODB_URI = process.env.MONGODB_URI;
-
 export async function connectToDatabase(): Promise<void> {
+  const MONGODB_URI = process.env.MONGODB_URI;
+
   if (!MONGODB_URI) {
     console.error("❌ MONGODB_URI environment variable is required");
     console.error(

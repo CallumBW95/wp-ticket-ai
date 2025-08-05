@@ -1,14 +1,14 @@
 import { MCPToolCall, MCPToolResult } from "../types";
 
-const MCP_SERVER_URL =
-  "https://mcp-server-wporg-trac-staging.a8cai.workers.dev";
+const MCP_SERVER_URL = "http://localhost:3001/api/mcp";
 
 let availableTools: any[] = [];
 
 // Simplified MCP client for WordPress MCP server
 export async function initializeMCP(): Promise<void> {
   try {
-    console.log("Attempting to connect to WordPress MCP server...");
+    console.log("🔄 Attempting to connect to WordPress MCP server...");
+    console.log("🌐 MCP Server URL:", MCP_SERVER_URL);
 
     // First, try to get server capabilities via initialize request
     const initResult = await makeJsonRpcRequest("initialize", {
@@ -127,11 +127,17 @@ async function makeJsonRpcRequest(method: string, params?: any): Promise<any> {
 }
 
 export async function getMCPTools(): Promise<any[]> {
+  console.log(
+    `🔧 getMCPTools called, availableTools.length: ${availableTools.length}`
+  );
   if (!availableTools.length) {
+    console.log(
+      "⚠️ No MCP tools available - MCP may not be initialized properly"
+    );
     return [];
   }
 
-  return availableTools.map((tool) => ({
+  const formattedTools = availableTools.map((tool) => ({
     name: tool.name,
     description: tool.description,
     parameters: tool.inputSchema || {
@@ -140,6 +146,12 @@ export async function getMCPTools(): Promise<any[]> {
       required: [],
     },
   }));
+
+  console.log(
+    "🔧 Formatted MCP tools for Gemini:",
+    JSON.stringify(formattedTools, null, 2)
+  );
+  return formattedTools;
 }
 
 export async function callMCPTool(
@@ -193,13 +205,69 @@ export async function callMCPTool(
     };
   } catch (error) {
     console.error("Error calling MCP tool:", error);
+
+    // Enhanced MCP error handling
+    let mcpErrorMessage = `MCP tool "${toolCall.name}" failed`;
+    let mcpErrorDetails = "";
+    let troubleshooting = "";
+
+    if (error instanceof Error) {
+      if (
+        error.message.includes("fetch") ||
+        error.message.includes("network")
+      ) {
+        mcpErrorMessage = "MCP server connection failed";
+        mcpErrorDetails = "Unable to connect to the WordPress Trac MCP server";
+        troubleshooting =
+          "Check if the MCP server URL is correct and accessible";
+      } else if (error.message.includes("timeout")) {
+        mcpErrorMessage = "MCP request timeout";
+        mcpErrorDetails = "The MCP server took too long to respond";
+        troubleshooting =
+          "Try again with a smaller request or check server status";
+      } else if (error.message.includes("404")) {
+        mcpErrorMessage = "MCP endpoint not found";
+        mcpErrorDetails = "The requested MCP tool or endpoint doesn't exist";
+        troubleshooting = "Verify the tool name and MCP server configuration";
+      } else if (error.message.includes("500")) {
+        mcpErrorMessage = "MCP server error";
+        mcpErrorDetails =
+          "The WordPress Trac MCP server encountered an internal error";
+        troubleshooting =
+          "The server may be temporarily unavailable. Try again later";
+      } else if (
+        error.message.includes("unauthorized") ||
+        error.message.includes("401")
+      ) {
+        mcpErrorMessage = "MCP authentication failed";
+        mcpErrorDetails = "Unable to authenticate with the MCP server";
+        troubleshooting = "Check MCP server credentials and permissions";
+      } else if (
+        error.message.includes("JSON") ||
+        error.message.includes("parse")
+      ) {
+        mcpErrorMessage = "MCP response parsing error";
+        mcpErrorDetails = "Received invalid data from MCP server";
+        troubleshooting = "The MCP server may be returning malformed data";
+      } else {
+        mcpErrorDetails = error.message;
+        troubleshooting = "Check the MCP server logs for more details";
+      }
+    }
+
     return {
       content: [
         {
           type: "text",
-          text: `Error calling ${toolCall.name}: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }`,
+          text: `🔌 ${mcpErrorMessage}${
+            mcpErrorDetails ? `\n📋 ${mcpErrorDetails}` : ""
+          }${troubleshooting ? `\n🔧 ${troubleshooting}` : ""}\n\nTool: ${
+            toolCall.name
+          }\nArguments: ${JSON.stringify(
+            toolCall.arguments,
+            null,
+            2
+          )}\nMCP Server: ${MCP_SERVER_URL}`,
         },
       ],
       isError: true,

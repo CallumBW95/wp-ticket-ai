@@ -1,3 +1,10 @@
+// Load environment variables for scraper
+import dotenv from "dotenv";
+import path from "path";
+
+// Load .env from current working directory (where npm run scrape is executed)
+dotenv.config({ path: path.join(process.cwd(), ".env") });
+
 import { connectToDatabase } from "../config/database.js";
 import TracScraper from "./TracScraper.js";
 

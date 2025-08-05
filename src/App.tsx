@@ -1,11 +1,16 @@
 import { useState, useEffect } from "react";
 import ChatBot from "./components/ChatBot";
+import ConversationSidebar from "./components/ConversationSidebar";
 import { initializeServices } from "./services/initialization";
 import "./App.css";
 
 function App() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [currentConversationId, setCurrentConversationId] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     const initialize = async () => {
@@ -40,14 +45,37 @@ function App() {
     );
   }
 
+  const handleConversationSelect = (conversationId: string) => {
+    setCurrentConversationId(conversationId);
+    setIsSidebarOpen(false);
+  };
+
+  const handleNewConversation = () => {
+    setCurrentConversationId(null);
+    setIsSidebarOpen(false);
+  };
+
   return (
     <div className="app">
-      <header className="app-header">
-        <h1>WP Aggregator AI Chat Bot</h1>
-        <p>Powered by Google Gemini with WordPress MCP Server</p>
-      </header>
-      <main className="app-main">
-        <ChatBot />
+      <ConversationSidebar
+        isOpen={isSidebarOpen}
+        currentConversationId={currentConversationId}
+        onConversationSelect={handleConversationSelect}
+        onNewConversation={handleNewConversation}
+      />
+
+      <main className={`app-main ${isSidebarOpen ? "sidebar-open" : ""}`}>
+        <ChatBot
+          conversationId={currentConversationId}
+          onConversationUpdate={(conversationId, title) => {
+            setCurrentConversationId(conversationId);
+          }}
+          onConversationClear={() => {
+            setCurrentConversationId(null);
+          }}
+          onSidebarToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+          isSidebarOpen={isSidebarOpen}
+        />
       </main>
     </div>
   );

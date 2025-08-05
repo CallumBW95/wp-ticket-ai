@@ -1,7 +1,11 @@
 import express from "express";
 import { Ticket } from "../models/Ticket.js";
+import { TracScraper } from "../scraper/TracScraper.js";
 
 const router = express.Router();
+
+// Initialize scraper instance
+const scraper = new TracScraper();
 
 // Get tickets with filtering and pagination
 router.get("/", async (req, res) => {
@@ -16,8 +20,14 @@ router.get("/", async (req, res) => {
       type,
       search,
       sort = "updatedAt",
+      sortBy,
       order = "desc",
+      sortOrder,
     } = req.query;
+
+    // Use sortBy/sortOrder as aliases for sort/order
+    const sortField = (sortBy as string) || (sort as string);
+    const sortDirection = (sortOrder as string) || (order as string);
 
     const query: any = {};
 
@@ -34,7 +44,7 @@ router.get("/", async (req, res) => {
     }
 
     const sortQuery: any = {};
-    sortQuery[sort as string] = order === "desc" ? -1 : 1;
+    sortQuery[sortField] = sortDirection === "desc" ? -1 : 1;
 
     const pageNum = parseInt(page as string);
     const limitNum = parseInt(limit as string);
@@ -57,33 +67,14 @@ router.get("/", async (req, res) => {
         limit: limitNum,
         total,
         pages: Math.ceil(total / limitNum),
+        currentPage: pageNum,
+        totalPages: Math.ceil(total / limitNum),
+        totalCount: total,
       },
     });
   } catch (error) {
     console.error("Error fetching tickets:", error);
     res.status(500).json({ error: "Failed to fetch tickets" });
-  }
-});
-
-// Get single ticket by ID
-router.get("/:ticketId", async (req, res) => {
-  try {
-    const ticketId = parseInt(req.params.ticketId);
-
-    if (isNaN(ticketId)) {
-      return res.status(400).json({ error: "Invalid ticket ID" });
-    }
-
-    const ticket = await Ticket.findOne({ ticketId }).lean();
-
-    if (!ticket) {
-      return res.status(404).json({ error: "Ticket not found" });
-    }
-
-    res.json(ticket);
-  } catch (error) {
-    console.error("Error fetching ticket:", error);
-    res.status(500).json({ error: "Failed to fetch ticket" });
   }
 });
 
@@ -102,7 +93,7 @@ router.get("/search/:query", async (req, res) => {
       .select("ticketId title description status priority component updatedAt")
       .lean();
 
-    res.json(tickets);
+    res.json({ tickets });
   } catch (error) {
     console.error("Error searching tickets:", error);
     res.status(500).json({ error: "Failed to search tickets" });
@@ -124,7 +115,7 @@ router.get("/recent/:days?", async (req, res) => {
       .select("ticketId title status priority component updatedAt")
       .lean();
 
-    res.json(tickets);
+    res.json({ tickets });
   } catch (error) {
     console.error("Error fetching recent tickets:", error);
     res.status(500).json({ error: "Failed to fetch recent tickets" });
@@ -153,14 +144,135 @@ router.get("/stats/summary", async (req, res) => {
       ]);
 
     res.json({
-      total: totalCount,
-      byStatus: statusStats,
-      byPriority: priorityStats,
+      summary: {
+        totalTickets: totalCount,
+      },
+      statusDistribution: statusStats,
+      priorityDistribution: priorityStats,
       topComponents: componentStats,
     });
   } catch (error) {
     console.error("Error fetching ticket stats:", error);
     res.status(500).json({ error: "Failed to fetch ticket statistics" });
+  }
+});
+
+// Save a single ticket to the database
+router.post("/save", async (req, res) => {
+  try {
+    const ticketData = req.body;
+
+    if (!ticketData.ticketId) {
+      return res.status(400).json({ error: "Ticket ID is required" });
+    }
+
+    console.log(`💾 Saving ticket ${ticketData.ticketId} to database`);
+
+    // Check if ticket already exists
+    const existingTicket = await Ticket.findOne({
+      ticketId: ticketData.ticketId,
+    });
+
+    if (existingTicket) {
+      // Update existing ticket
+      await Ticket.findOneAndUpdate(
+        { ticketId: ticketData.ticketId },
+        ticketData,
+        { new: true }
+      );
+      console.log(`✅ Updated existing ticket ${ticketData.ticketId}`);
+    } else {
+      // Create new ticket
+      const newTicket = new Ticket(ticketData);
+      await newTicket.save();
+      console.log(`✅ Created new ticket ${ticketData.ticketId}`);
+    }
+
+    res.json({ success: true, message: "Ticket saved successfully" });
+  } catch (error) {
+    console.error("Error saving ticket:", error);
+    res.status(500).json({ error: "Failed to save ticket" });
+  }
+});
+
+// Fetch ticket with full comment data using scraper
+router.get("/scrape/:ticketId", async (req, res) => {
+  try {
+    const ticketId = parseInt(req.params.ticketId);
+
+    if (isNaN(ticketId)) {
+      return res.status(400).json({ error: "Invalid ticket ID" });
+    }
+
+    console.log(`🔄 Scraping ticket ${ticketId} for full comment data...`);
+
+    // First check if we already have this ticket in the database
+    const existingTicket = await Ticket.findOne({ ticketId }).lean();
+
+    // If we have the ticket and it has non-placeholder comments, return it
+    if (
+      existingTicket &&
+      existingTicket.comments &&
+      existingTicket.comments.length > 0
+    ) {
+      const hasRealComments = existingTicket.comments.some(
+        (comment: any) =>
+          comment.content &&
+          !comment.content.includes("Comment history not available") &&
+          !comment.content.includes("Visit the ticket URL for full discussion")
+      );
+
+      if (hasRealComments) {
+        console.log(`✅ Ticket ${ticketId} already has real comment data`);
+        return res.json(existingTicket);
+      }
+    }
+
+    // Use scraper to get fresh data with real comments
+    const scrapedTicket = await scraper.scrapeTicket(ticketId);
+
+    if (!scrapedTicket) {
+      return res
+        .status(404)
+        .json({ error: "Ticket not found or inaccessible" });
+    }
+
+    // Save or update the ticket with real comment data
+    await Ticket.findOneAndUpdate({ ticketId }, scrapedTicket, {
+      upsert: true,
+      new: true,
+    });
+
+    console.log(
+      `✅ Successfully scraped ticket ${ticketId} with ${scrapedTicket.comments.length} comments`
+    );
+
+    res.json(scrapedTicket);
+  } catch (error) {
+    console.error(`Error scraping ticket ${req.params.ticketId}:`, error);
+    res.status(500).json({ error: "Failed to scrape ticket" });
+  }
+});
+
+// Get single ticket by ID (must come after specific routes to avoid conflicts)
+router.get("/:ticketId", async (req, res) => {
+  try {
+    const ticketId = parseInt(req.params.ticketId);
+
+    if (isNaN(ticketId)) {
+      return res.status(400).json({ error: "Invalid ticket ID" });
+    }
+
+    const ticket = await Ticket.findOne({ ticketId }).lean();
+
+    if (!ticket) {
+      return res.status(404).json({ error: "Ticket not found" });
+    }
+
+    res.json(ticket);
+  } catch (error) {
+    console.error("Error fetching ticket:", error);
+    res.status(500).json({ error: "Failed to fetch ticket" });
   }
 });
 
