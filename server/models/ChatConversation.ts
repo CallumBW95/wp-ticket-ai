@@ -114,14 +114,23 @@ ChatConversationSchema.index({ isArchived: 1, lastActivity: -1 });
 ChatConversationSchema.methods.generateTitle = function (): string {
   const conversation = this as IChatConversation;
 
-  // Priority 1: If ticket numbers are present
-  if (conversation.ticketNumbers.length > 0) {
-    if (conversation.ticketNumbers.length === 1) {
-      return `Discussion: Ticket #${conversation.ticketNumbers[0]}`;
-    } else if (conversation.ticketNumbers.length <= 3) {
-      return `Discussion: Tickets #${conversation.ticketNumbers.join(", #")}`;
+  // Priority 1: If ticket numbers are present in user messages (main topic)
+  const userTicketNumbers = new Set<number>();
+  for (const message of conversation.messages) {
+    if (message.role === "user") {
+      const tickets = (this as any).extractTicketNumbers(message.content);
+      tickets.forEach((t: number) => userTicketNumbers.add(t));
+    }
+  }
+  const mainTicketNumbers = Array.from(userTicketNumbers).sort((a, b) => a - b);
+
+  if (mainTicketNumbers.length > 0) {
+    if (mainTicketNumbers.length === 1) {
+      return `Discussion: Ticket #${mainTicketNumbers[0]}`;
+    } else if (mainTicketNumbers.length <= 3) {
+      return `Discussion: Tickets #${mainTicketNumbers.join(", #")}`;
     } else {
-      return `Discussion: ${conversation.ticketNumbers.length} WordPress Tickets`;
+      return `Discussion: ${mainTicketNumbers.length} WordPress Tickets`;
     }
   }
 
@@ -261,19 +270,19 @@ ChatConversationSchema.pre("save", function (next) {
   // Extract and update ticket numbers from all messages
   const allTickets = new Set<number>();
   for (const message of conversation.messages) {
-    const tickets = this.extractTicketNumbers(message.content);
-    tickets.forEach((t) => allTickets.add(t));
+    const tickets = (this as any).extractTicketNumbers(message.content);
+    tickets.forEach((t: number) => allTickets.add(t));
     message.ticketsReferenced = tickets;
   }
   conversation.ticketNumbers = Array.from(allTickets).sort((a, b) => a - b);
 
   // Extract and update topics
-  conversation.topics = this.extractTopics();
+  conversation.topics = (this as any).extractTopics();
 
   // Auto-generate title if not set or if it's a default title
   if (!conversation.title || conversation.title.startsWith("Chat Session -")) {
     try {
-      const generatedTitle = this.generateTitle();
+      const generatedTitle = (this as any).generateTitle();
       conversation.title =
         generatedTitle ||
         `Chat Session - ${conversation.createdAt.toLocaleDateString()}`;

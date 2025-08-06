@@ -150,13 +150,19 @@ describe("ChatConversation Model", () => {
       const conversation = new ChatConversation({
         conversationId: uuidv4(),
         title: "",
-        ticketNumbers: [12345],
+        ticketNumbers: [],
         topics: [],
-        messages: [],
+        messages: [
+          {
+            role: "user",
+            content: "Can you help me with ticket #12345?",
+            timestamp: new Date(),
+          },
+        ],
         createdAt: new Date(),
         updatedAt: new Date(),
         lastActivity: new Date(),
-        messageCount: 0,
+        messageCount: 1,
         isArchived: false,
       });
 
@@ -168,18 +174,24 @@ describe("ChatConversation Model", () => {
       const conversation = new ChatConversation({
         conversationId: uuidv4(),
         title: "",
-        ticketNumbers: [12345, 67890, 11111],
+        ticketNumbers: [],
         topics: [],
-        messages: [],
+        messages: [
+          {
+            role: "user",
+            content: "I need help with tickets #12345, #67890, and #11111",
+            timestamp: new Date(),
+          },
+        ],
         createdAt: new Date(),
         updatedAt: new Date(),
         lastActivity: new Date(),
-        messageCount: 0,
+        messageCount: 1,
         isArchived: false,
       });
 
       const title = conversation.generateTitle();
-      expect(title).toBe("Discussion: Tickets #12345, #67890, #11111");
+      expect(title).toBe("Discussion: Tickets #11111, #12345, #67890");
     });
 
     it("should generate title from topics when no tickets", async () => {
@@ -222,6 +234,36 @@ describe("ChatConversation Model", () => {
 
       const title = conversation.generateTitle();
       expect(title).toBe("How do I create a custom WordPress theme?");
+    });
+
+    it("should not include referenced tickets from assistant messages in title", async () => {
+      const conversation = new ChatConversation({
+        conversationId: uuidv4(),
+        title: "",
+        ticketNumbers: [],
+        topics: [],
+        messages: [
+          {
+            role: "user",
+            content: "Can you help me with ticket #12345?",
+            timestamp: new Date(),
+          },
+          {
+            role: "assistant",
+            content: "Sure! I can help with ticket #12345. This is related to tickets #99999 and #88888 that were mentioned in the discussion.",
+            timestamp: new Date(),
+          },
+        ],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        lastActivity: new Date(),
+        messageCount: 2,
+        isArchived: false,
+      });
+
+      const title = conversation.generateTitle();
+      // Should only include ticket #12345 from user message, not #99999 or #88888 from assistant
+      expect(title).toBe("Discussion: Ticket #12345");
     });
   });
 

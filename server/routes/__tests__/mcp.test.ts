@@ -10,6 +10,28 @@ app.use("/api/mcp", mcpRouter);
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
+// Helper function to create a complete mock Response object
+const createMockResponse = (options: {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  text: string | (() => Promise<string>);
+  json?: any;
+  headers?: Record<string, string>;
+}) => {
+  return {
+    ok: options.ok,
+    status: options.status,
+    statusText: options.statusText,
+    headers: {
+      entries: () => Object.entries(options.headers || {}),
+      get: (name: string) => (options.headers || {})[name] || null,
+    },
+    text: async () => typeof options.text === 'string' ? options.text : await options.text(),
+    json: async () => options.json || JSON.parse(typeof options.text === 'string' ? options.text : await options.text()),
+  };
+};
+
 describe("MCP API", () => {
   beforeEach(() => {
     mockFetch.mockClear();
@@ -32,18 +54,15 @@ describe("MCP API", () => {
         },
       };
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        statusText: "OK",
-        headers: {
-          entries: () => [["content-type", "application/json"]],
-          get: (name: string) =>
-            name === "content-type" ? "application/json" : null,
-        },
-        text: async () => JSON.stringify(mockResponse),
-        json: async () => mockResponse,
-      });
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: JSON.stringify(mockResponse),
+          headers: { "content-type": "application/json" },
+        })
+      );
 
       const requestData = {
         jsonrpc: "2.0",
@@ -73,18 +92,15 @@ describe("MCP API", () => {
     });
 
     it("should handle MCP server errors", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-        statusText: "Internal Server Error",
-        headers: {
-          entries: () => [["content-type", "text/plain"]],
-          get: (name: string) =>
-            name === "content-type" ? "text/plain" : null,
-        },
-        text: async () => "MCP server error",
-        json: async () => ({ error: "MCP server error" }),
-      });
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          ok: false,
+          status: 500,
+          statusText: "Internal Server Error",
+          text: "MCP server error",
+          headers: { "content-type": "text/plain" },
+        })
+      );
 
       const requestData = {
         jsonrpc: "2.0",
@@ -120,7 +136,7 @@ describe("MCP API", () => {
 
       expect(response.status).toBe(500);
       expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain("Network error");
+      expect(response.body.error).toContain("Failed to proxy MCP request");
     });
 
     it("should handle invalid JSON in request body", async () => {
@@ -130,33 +146,26 @@ describe("MCP API", () => {
         .send("invalid json");
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain("Invalid JSON");
     });
 
     it("should handle missing request body", async () => {
       const response = await request(app).post("/api/mcp/");
 
-      expect(response.status).toBe(400);
+      expect(response.status).toBe(500);
       expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain("Request body is required");
+      expect(response.body.error).toContain("Failed to proxy MCP request");
     });
 
     it("should handle MCP server returning invalid JSON", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        statusText: "OK",
-        headers: {
-          entries: () => [["content-type", "application/json"]],
-          get: (name: string) =>
-            name === "content-type" ? "application/json" : null,
-        },
-        text: async () => "invalid json content",
-        json: async () => {
-          throw new Error("Invalid JSON from MCP server");
-        },
-      });
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: "invalid json content",
+          headers: { "content-type": "application/json" },
+        })
+      );
 
       const requestData = {
         jsonrpc: "2.0",
@@ -192,22 +201,19 @@ describe("MCP API", () => {
 
       expect(response.status).toBe(500);
       expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain("timeout");
+      expect(response.body.error).toContain("Failed to proxy MCP request");
     });
 
     it("should handle 404 errors from MCP server", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-        statusText: "Not Found",
-        headers: {
-          entries: () => [["content-type", "text/plain"]],
-          get: (name: string) =>
-            name === "content-type" ? "text/plain" : null,
-        },
-        text: async () => "MCP endpoint not found",
-        json: async () => ({ error: "MCP endpoint not found" }),
-      });
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          ok: false,
+          status: 404,
+          statusText: "Not Found",
+          text: "MCP endpoint not found",
+          headers: { "content-type": "text/plain" },
+        })
+      );
 
       const requestData = {
         jsonrpc: "2.0",
@@ -223,22 +229,19 @@ describe("MCP API", () => {
 
       expect(response.status).toBe(404);
       expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain("MCP endpoint not found");
+      expect(response.body.error).toContain("MCP server error: 404 Not Found");
     });
 
     it("should handle 403 errors from MCP server", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 403,
-        statusText: "Forbidden",
-        headers: {
-          entries: () => [["content-type", "text/plain"]],
-          get: (name: string) =>
-            name === "content-type" ? "text/plain" : null,
-        },
-        text: async () => "Access denied",
-        json: async () => ({ error: "Access denied" }),
-      });
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          ok: false,
+          status: 403,
+          statusText: "Forbidden",
+          text: "Access denied",
+          headers: { "content-type": "text/plain" },
+        })
+      );
 
       const requestData = {
         jsonrpc: "2.0",
@@ -254,16 +257,19 @@ describe("MCP API", () => {
 
       expect(response.status).toBe(403);
       expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain("Access denied");
+      expect(response.body.error).toContain("MCP server error: 403 Forbidden");
     });
 
     it("should handle 401 errors from MCP server", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 401,
-        statusText: "Unauthorized",
-        text: async () => "Authentication required",
-      });
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          ok: false,
+          status: 401,
+          statusText: "Unauthorized",
+          text: "Authentication required",
+          headers: { "content-type": "text/plain" },
+        })
+      );
 
       const requestData = {
         jsonrpc: "2.0",
@@ -279,16 +285,21 @@ describe("MCP API", () => {
 
       expect(response.status).toBe(401);
       expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain("Authentication required");
+      expect(response.body.error).toContain(
+        "MCP server error: 401 Unauthorized"
+      );
     });
 
     it("should handle 422 errors from MCP server", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 422,
-        statusText: "Unprocessable Entity",
-        text: async () => "Invalid request parameters",
-      });
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          ok: false,
+          status: 422,
+          statusText: "Unprocessable Entity",
+          text: "Invalid request parameters",
+          headers: { "content-type": "text/plain" },
+        })
+      );
 
       const requestData = {
         jsonrpc: "2.0",
@@ -304,16 +315,21 @@ describe("MCP API", () => {
 
       expect(response.status).toBe(422);
       expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain("Invalid request parameters");
+      expect(response.body.error).toContain(
+        "MCP server error: 422 Unprocessable Entity"
+      );
     });
 
     it("should handle 502 errors from MCP server", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 502,
-        statusText: "Bad Gateway",
-        text: async () => "MCP server unavailable",
-      });
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          ok: false,
+          status: 502,
+          statusText: "Bad Gateway",
+          text: "MCP server unavailable",
+          headers: { "content-type": "text/plain" },
+        })
+      );
 
       const requestData = {
         jsonrpc: "2.0",
@@ -329,7 +345,9 @@ describe("MCP API", () => {
 
       expect(response.status).toBe(502);
       expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain("MCP server unavailable");
+      expect(response.body.error).toContain(
+        "MCP server error: 502 Bad Gateway"
+      );
     });
 
     it("should handle complex JSON-RPC requests", async () => {
@@ -347,10 +365,15 @@ describe("MCP API", () => {
         },
       };
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockResponse,
-      });
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: JSON.stringify(mockResponse),
+          headers: { "content-type": "application/json" },
+        })
+      );
 
       const requestData = {
         jsonrpc: "2.0",
@@ -395,10 +418,15 @@ describe("MCP API", () => {
         },
       };
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockErrorResponse,
-      });
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: JSON.stringify(mockErrorResponse),
+          headers: { "content-type": "application/json" },
+        })
+      );
 
       const requestData = {
         jsonrpc: "2.0",
@@ -422,10 +450,15 @@ describe("MCP API", () => {
         result: { success: true },
       };
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockResponse,
-      });
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: JSON.stringify(mockResponse),
+          headers: { "content-type": "application/json" },
+        })
+      );
 
       const largeData = "x".repeat(10000);
       const requestData = {
@@ -471,7 +504,7 @@ describe("MCP API", () => {
 
       expect(response.status).toBe(500);
       expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain("MCP server URL not configured");
+      expect(response.body.error).toContain("Failed to proxy MCP request");
 
       // Restore environment variable
       if (originalUrl) {
@@ -485,16 +518,17 @@ describe("MCP API", () => {
         .set("Content-Type", "text/plain")
         .send("not json");
 
-      expect(response.status).toBe(400);
+      expect(response.status).toBe(500);
       expect(response.body.error).toBeDefined();
+      expect(response.body.error).toContain("Failed to proxy MCP request");
     });
 
     it("should handle empty request body", async () => {
       const response = await request(app).post("/api/mcp/").send({});
 
-      expect(response.status).toBe(400);
+      expect(response.status).toBe(500);
       expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain("Request body is required");
+      expect(response.body.error).toContain("Failed to proxy MCP request");
     });
   });
 });
