@@ -413,3 +413,42 @@ This application requires a modern browser with support for:
 ## License
 
 This project is licensed under the MIT License.
+
+## CLI Usage
+
+You can run the CLI locally or install it globally.
+
+### Local (dev)
+```bash
+# Build the CLI
+npm run build:cli
+
+# Run commands
+node dist/index.cjs ticket 12345 get
+# or via script
+npm run cli -- ticket 12345 get
+```
+
+### Global link (development)
+```bash
+# Build once
+npm run build:cli
+
+# Link globally to use `wpai`
+npm link
+
+# Now use globally
+wpai ticket 12345 get --json
+wpai conv list --limit 5
+```
+
+### Global install (when published)
+```bash
+npm install -g wp-aggregator-ai-chatbot
+wpai dev health --url http://localhost:3001/health
+```
+
+Uninstall global link:
+```bash
+npm unlink -g wp-aggregator-ai-chatbot
+```

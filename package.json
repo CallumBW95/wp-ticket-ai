@@ -74,6 +74,6 @@
     "zod": "^4.0.17"
   },
   "bin": {
-    "wpai": "dist/wpai.js"
+    "wpai": "dist/index.cjs"
   }
 }
