@@ -6,6 +6,8 @@ import pkg from "../../package.json" assert { type: "json" };
 import { createApiClient } from "./lib/api";
 import { printJsonOrTable, logger, setLogLevel } from "./lib/io";
 import { z } from "zod";
+import { writeFileSafe } from "./lib/fs";
+import path from "path";
 
 const program = new Command();
 
@@ -29,8 +31,13 @@ program
   .command("ticket")
   .description("Ticket commands")
   .argument("<ticketId>", "Trac ticket id (number)")
-  .argument("<task>", "task: get|comments")
-  .action(async (ticketId, task) => {
+  .argument(
+    "<task>",
+    "task: get|comments|next-steps|analyze-patch|gen-tests|scaffold-plugin"
+  )
+  .option("--patch <file>", "path to patch file for analyze-patch")
+  .option("--out <dir>", "output directory for generated files", "./out")
+  .action(async (ticketId, task, options) => {
     const opts = program.opts();
     const api = createApiClient(opts.api, Number(opts.timeout));
 
@@ -50,7 +57,67 @@ program
       });
       return;
     }
-    logger.error("Unknown task for ticket. Use: get|comments");
+
+    if (task === "next-steps") {
+      const data = await api.get(`/api/tickets/${idNum}`);
+      // Heuristic next steps based on status/attachments/comments
+      const steps: string[] = [];
+      if (data.status === "new") steps.push("Triage: confirm reproducibility and scope");
+      if (data.attachments?.length) steps.push("Review attachments/patches for coding standards");
+      if ((data.comments ?? []).length < 1) steps.push("Request more details from reporter");
+      steps.push("Check related changesets and impacted components");
+      await printJsonOrTable(
+        steps.map((s, i) => ({ step: i + 1, action: s })),
+        opts.json,
+        { columns: ["step", "action"] }
+      );
+      return;
+    }
+
+    if (task === "analyze-patch") {
+      if (!options.patch) {
+        logger.error("--patch <file> is required for analyze-patch");
+        process.exit(2);
+      }
+      // Placeholder: in future send to AI/tooling; for now produce a stub analysis
+      const analysis = {
+        ticketId: idNum,
+        summary: "Static analysis placeholder: check coding standards, test coverage, and backwards compatibility.",
+        checks: [
+          "PHP coding standards (PHPCS)",
+          "Docs blocks & function signatures",
+          "Backward compatibility surface",
+          "Unit/integration test coverage",
+        ],
+      };
+      await printJsonOrTable(analysis, opts.json);
+      return;
+    }
+
+    if (task === "gen-tests") {
+      const outDir = path.resolve(String(options.out));
+      const pluginSlug = `wpai-ticket-${idNum}-tests`;
+      const pluginDir = path.join(outDir, pluginSlug);
+      const testPhp = `<?php\n/**\n * Tests for ticket #${idNum}.\n *\n * @group ticket-${idNum}\n */\nclass Tests_Ticket_${idNum} extends WP_UnitTestCase {\n\tpublic function test_placeholder() {\n\t\t$this->assertTrue(true);\n\t}\n}\n`;
+      await writeFileSafe(path.join(pluginDir, "tests", `test-ticket-${idNum}.php`), testPhp);
+      logger.info(`✅ Generated unit test skeleton at ${path.join(pluginDir, "tests")}`);
+      return;
+    }
+
+    if (task === "scaffold-plugin") {
+      const outDir = path.resolve(String(options.out));
+      const pluginSlug = `wpai-ticket-${idNum}`;
+      const pluginDir = path.join(outDir, pluginSlug);
+      const mainPhp = `<?php\n/**\n * Plugin Name: WP AI Ticket ${idNum} Sandbox\n * Description: Sandbox plugin scaffold for testing ticket #${idNum}.\n * Version: 0.1.0\n */\n`;
+      const readme = `# Ticket ${idNum} Sandbox\n\nUse this plugin to reproduce and verify fixes for ticket ${idNum}.\n`;
+      await writeFileSafe(path.join(pluginDir, `${pluginSlug}.php`), mainPhp);
+      await writeFileSafe(path.join(pluginDir, "readme.md"), readme);
+      await writeFileSafe(path.join(pluginDir, "tests", ".gitkeep"), "");
+      logger.info(`✅ Scaffolded plugin at ${pluginDir}`);
+      return;
+    }
+
+    logger.error("Unknown task for ticket. Use: get|comments|next-steps|analyze-patch|gen-tests|scaffold-plugin");
     process.exit(2);
   });
 
