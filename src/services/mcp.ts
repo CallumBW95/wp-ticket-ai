@@ -1,6 +1,7 @@
 import { MCPToolCall, MCPToolResult } from "../types";
+import { API_ENDPOINTS } from "../config/api";
 
-const MCP_SERVER_URL = "http://localhost:3001/api/mcp";
+const MCP_SERVER_URL = API_ENDPOINTS.MCP;
 
 let availableTools: any[] = [];
 

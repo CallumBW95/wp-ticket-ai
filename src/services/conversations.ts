@@ -2,8 +2,7 @@ import {
   IConversationMessage,
   IChatConversation,
 } from "../../server/models/ChatConversation.js";
-
-const API_BASE_URL = "http://localhost:3001"; // Your backend API base URL
+import { API_ENDPOINTS } from "../config/api";
 
 export interface ConversationSummary {
   conversationId: string;
@@ -20,7 +19,7 @@ export async function createConversation(
   initialMessage: Omit<IConversationMessage, "timestamp">
 ): Promise<{ conversationId: string; title: string }> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/conversations`, {
+    const response = await fetch(API_ENDPOINTS.CONVERSATIONS, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -70,7 +69,7 @@ export async function getConversation(
 ): Promise<IChatConversation> {
   try {
     const response = await fetch(
-      `${API_BASE_URL}/api/conversations/${conversationId}`
+      API_ENDPOINTS.CONVERSATION_DETAILS(conversationId)
     );
 
     if (!response.ok) {
@@ -118,7 +117,7 @@ export async function getConversation(
 
 export async function listConversations(): Promise<ConversationSummary[]> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/conversations`);
+    const response = await fetch(API_ENDPOINTS.CONVERSATIONS);
 
     if (!response.ok) {
       const errorData = await response.json();
@@ -163,7 +162,7 @@ export async function deleteConversation(
 ): Promise<void> {
   try {
     const response = await fetch(
-      `${API_BASE_URL}/api/conversations/${conversationId}`,
+      API_ENDPOINTS.CONVERSATION_DETAILS(conversationId),
       {
         method: "DELETE",
       }
@@ -205,7 +204,7 @@ export async function addMessageToConversation(
 ): Promise<{ success: boolean; title?: string }> {
   try {
     const response = await fetch(
-      `${API_BASE_URL}/api/conversations/${conversationId}/messages`,
+      API_ENDPOINTS.CONVERSATION_MESSAGES(conversationId),
       {
         method: "POST",
         headers: {

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { Message, ChatState } from "../types";
-import { sendMessage } from "../services/gemini";
+import { sendMessage, getQueueStatus } from "../services/gemini";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
 import {
@@ -40,14 +40,40 @@ function ChatBot({
     string | null
   >(conversationId || null);
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
+  const [queueStatus, setQueueStatus] = useState({
+    queueLength: 0,
+    isProcessing: false,
+  });
 
-  // Load conversation when conversationId changes
+  // Monitor queue status
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const status = getQueueStatus();
+      setQueueStatus(status);
+    }, 1000); // Check every second
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Load conversation by ID
   const loadConversation = useCallback(async (convId: string) => {
     if (!convId) return;
-
     try {
+      console.log("📥 Starting to load conversation:", convId);
       setIsLoadingConversation(true);
+
       const conversation = await getConversation(convId);
+      console.log("📋 Raw conversation data from API:", {
+        id: conversation.conversationId,
+        title: conversation.title,
+        messageCount: conversation.messageCount,
+        messages: conversation.messages.map((m) => ({
+          role: m.role,
+          content: m.content.substring(0, 50) + "...",
+          timestamp: m.timestamp,
+        })),
+        totalMessagesInArray: conversation.messages.length,
+      });
 
       // Convert conversation messages to ChatBot message format
       const messages: Message[] = conversation.messages.map((msg) => ({
@@ -56,6 +82,8 @@ function ChatBot({
         content: msg.content,
         timestamp: new Date(msg.timestamp),
       }));
+
+      console.log("🔄 Converted messages:", messages.length);
 
       setChatState({
         messages,
@@ -72,8 +100,10 @@ function ChatBot({
         .reverse();
       setMessageHistory(userMessages);
       setHistoryIndex(-1);
+
+      console.log("✅ Conversation loaded successfully");
     } catch (error) {
-      console.error("Failed to load conversation:", error);
+      console.error("❌ Failed to load conversation:", error);
       setChatState((prev) => ({
         ...prev,
         error: "Failed to load conversation",
@@ -85,30 +115,53 @@ function ChatBot({
 
   // Save message to conversation
   const saveMessageToConversation = useCallback(
-    async (message: Message, toolsUsed?: string[]) => {
-      if (!currentConversationId) {
-        console.warn("Cannot save message: no current conversation ID", {
+    async (message: Message, toolsUsed?: string[], conversationId?: string) => {
+      const targetConversationId = conversationId || currentConversationId;
+
+      if (!targetConversationId) {
+        console.warn("⚠️ Cannot save message: no conversation ID", {
           message,
+          providedId: conversationId,
+          currentId: currentConversationId,
         });
         return;
       }
 
       try {
+        console.log("💾 Saving message to conversation:", {
+          conversationId: targetConversationId,
+          role: message.role,
+          contentLength: message.content.length,
+          contentPreview: message.content.substring(0, 100) + "...",
+        });
+
         const ticketsReferenced = extractTicketNumbers(message.content);
 
-        const result = await addMessageToConversation(currentConversationId, {
+        const result = await addMessageToConversation(targetConversationId, {
           role: message.role,
           content: message.content,
           ticketsReferenced,
           toolsUsed,
         });
 
+        console.log("✅ Message saved successfully:", result);
+
         // Update conversation title if it changed
         if (onConversationUpdate && result.title) {
-          onConversationUpdate(currentConversationId, result.title);
+          console.log("🔄 Updating conversation title:", result.title);
+          onConversationUpdate(targetConversationId, result.title);
         }
       } catch (error) {
-        console.error("Failed to save message to conversation:", error);
+        console.error("❌ Failed to save message to conversation:", error);
+        // Log more details about the error
+        if (error instanceof Error) {
+          console.error("Error details:", {
+            message: error.message,
+            stack: error.stack,
+            conversationId: targetConversationId,
+            messageRole: message.role,
+          });
+        }
       }
     },
     [currentConversationId, onConversationUpdate]
@@ -118,24 +171,40 @@ function ChatBot({
   const ensureConversation = useCallback(
     async (firstMessage: Message): Promise<string> => {
       if (currentConversationId) {
+        console.log("🔄 Using existing conversation:", currentConversationId);
         return currentConversationId;
       }
 
       try {
+        console.log("🆕 Creating new conversation for message:", {
+          role: firstMessage.role,
+          contentLength: firstMessage.content.length,
+        });
+
         const response = await createConversation({
           role: firstMessage.role,
           content: firstMessage.content,
         });
 
+        console.log("✅ New conversation created:", response);
+        console.log("🔍 New conversation details:", {
+          conversationId: response.conversationId,
+          title: response.title,
+        });
+
         setCurrentConversationId(response.conversationId);
 
         if (onConversationUpdate) {
+          console.log(
+            "🔄 Notifying parent of new conversation:",
+            response.conversationId
+          );
           onConversationUpdate(response.conversationId, response.title);
         }
 
         return response.conversationId;
       } catch (error) {
-        console.error("Failed to create conversation:", error);
+        console.error("❌ Failed to create conversation:", error);
         throw error;
       }
     },
@@ -144,6 +213,11 @@ function ChatBot({
 
   const handleSendMessage = useCallback(
     async (content: string) => {
+      console.log(
+        "🚀 handleSendMessage called with content:",
+        content.substring(0, 50) + "..."
+      );
+
       const userMessage: Message = {
         id: Date.now().toString(),
         role: "user",
@@ -152,8 +226,17 @@ function ChatBot({
       };
 
       try {
-        // Ensure we have a conversation to save to
-        await ensureConversation(userMessage);
+        console.log("🔍 Ensuring conversation exists...");
+        // Ensure we have a conversation to save to and get the conversation ID
+        const conversationId = await ensureConversation(userMessage);
+        
+        console.log("🔑 Got conversation ID:", conversationId);
+        
+        // Check if this is a new conversation (we didn't have a conversation ID before)
+        const isNewConversation = !currentConversationId;
+        
+        // Set the conversation ID immediately
+        setCurrentConversationId(conversationId);
 
         // Add message to history
         setMessageHistory((prev) => {
@@ -165,6 +248,7 @@ function ChatBot({
         // Reset history index
         setHistoryIndex(-1);
 
+        console.log("📝 Adding user message to UI...");
         // Add user message and set loading state
         setChatState((prev) => ({
           ...prev,
@@ -173,11 +257,20 @@ function ChatBot({
           error: null,
         }));
 
-        // Save user message to conversation
-        await saveMessageToConversation(userMessage);
+        // Note: First user message is already saved during conversation creation
+        // Only save additional messages to existing conversations
+        if (!isNewConversation) {
+          console.log("💾 Saving user message to existing conversation...");
+          await saveMessageToConversation(userMessage, undefined, conversationId);
+        } else {
+          console.log("💾 Skipping user message save - already included in new conversation");
+        }
 
+        console.log("🤖 Sending message to AI...");
         // Send message to AI
         const response = await sendMessage(content);
+
+        console.log("📨 AI response received, length:", response.length);
 
         const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
@@ -186,6 +279,7 @@ function ChatBot({
           timestamp: new Date(),
         };
 
+        console.log("📝 Adding assistant message to UI...");
         // Add assistant message to UI first
         setChatState((prev) => ({
           ...prev,
@@ -193,19 +287,25 @@ function ChatBot({
           isLoading: false,
         }));
 
-        // Save assistant message to conversation (don't let this fail the whole operation)
+        console.log("💾 Saving assistant message to conversation...");
+        // Save assistant message to conversation using the conversation ID directly
         try {
-          await saveMessageToConversation(assistantMessage);
+          await saveMessageToConversation(
+            assistantMessage,
+            undefined,
+            conversationId
+          );
+          console.log("✅ Assistant message saved successfully");
         } catch (saveError) {
           console.error(
-            "Failed to save assistant message to conversation:",
+            "❌ Failed to save assistant message to conversation:",
             saveError
           );
           // Don't throw the error - the message is already shown in the UI
           // We could add a visual indicator that the message wasn't saved
         }
       } catch (error) {
-        console.error("Error in handleSendMessage:", error);
+        console.error("❌ Error in handleSendMessage:", error);
 
         // Enhanced frontend error handling
         let userFriendlyMessage = "Something went wrong";
@@ -233,45 +333,33 @@ function ChatBot({
             userFriendlyMessage = "Request timed out";
             actionableAdvice =
               "The request took too long. Try sending a shorter message";
-          } else if (
-            error.message.includes("rate limit") ||
-            error.message.includes("quota")
-          ) {
-            userFriendlyMessage = "Service temporarily unavailable";
+          } else if (error.message.includes("model overloaded")) {
+            userFriendlyMessage = "AI model is currently busy";
             actionableAdvice =
-              "Too many requests. Please wait a moment before trying again";
-          } else if (
-            error.message.includes("overloaded") ||
-            error.message.includes("503")
-          ) {
-            userFriendlyMessage = "AI model is currently overloaded";
+              "Please wait a moment and try again. The model is handling many requests.";
+          } else if (error.message.includes("safety filters")) {
+            userFriendlyMessage = "Message blocked by safety filters";
             actionableAdvice =
-              "Google's servers are experiencing high demand. The system will automatically retry, or you can wait a few minutes and try again";
-          } else if (
-            error.message.includes("authentication") ||
-            error.message.includes("API key")
-          ) {
-            userFriendlyMessage = "Authentication error";
+              "Please rephrase your message to avoid triggering safety filters.";
+          } else if (error.message.includes("API key")) {
+            userFriendlyMessage = "API configuration error";
             actionableAdvice =
-              "There's an issue with the AI service configuration";
+              "Please check your API key configuration and try again.";
+          } else if (error.message.includes("rate limit")) {
+            userFriendlyMessage = "Too many requests";
+            actionableAdvice =
+              "Please wait a moment before sending another message.";
           } else {
             userFriendlyMessage = error.message;
             actionableAdvice =
-              "If this problem persists, please refresh the page";
+              "Please try again or contact support if the problem persists.";
           }
         }
 
-        const fullErrorMessage = actionableAdvice
-          ? `${userFriendlyMessage}\n\n💡 ${actionableAdvice}`
-          : userFriendlyMessage;
-
-        // Create an error message to show in the chat
         const errorMessage: Message = {
-          id: (Date.now() + 1).toString(),
+          id: (Date.now() + 2).toString(),
           role: "assistant",
-          content: `❌ **Error**: ${userFriendlyMessage}${
-            actionableAdvice ? `\n\n💡 **Suggestion**: ${actionableAdvice}` : ""
-          }`,
+          content: `❌ **${userFriendlyMessage}**\n\n${actionableAdvice}`,
           timestamp: new Date(),
         };
 
@@ -279,24 +367,38 @@ function ChatBot({
           ...prev,
           messages: [...prev.messages, errorMessage],
           isLoading: false,
-          error: null, // Clear any global error state
+          error: userFriendlyMessage,
         }));
 
-        // Try to save the error message to conversation
-        try {
-          await saveMessageToConversation(errorMessage);
-        } catch (saveError) {
-          console.error(
-            "Failed to save error message to conversation:",
-            saveError
-          );
+        // Try to save the error message to the conversation if we have a conversation ID
+        if (currentConversationId) {
+          try {
+            console.log("💾 Saving error message to conversation...");
+            await saveMessageToConversation(
+              errorMessage,
+              undefined,
+              currentConversationId
+            );
+            console.log("✅ Error message saved successfully");
+          } catch (saveError) {
+            console.error(
+              "❌ Failed to save error message to conversation:",
+              saveError
+            );
+          }
         }
       }
     },
-    [ensureConversation, saveMessageToConversation]
+    [
+      ensureConversation,
+      saveMessageToConversation,
+      sendMessage,
+      currentConversationId,
+    ]
   );
 
   const handleClearChat = useCallback(() => {
+    console.log("🧹 handleClearChat called - clearing all state");
     setChatState(initialState);
     setMessageHistory([]);
     setHistoryIndex(-1);
@@ -304,15 +406,22 @@ function ChatBot({
 
     // Notify parent component that conversation was cleared
     if (onConversationClear) {
+      console.log("🔄 Notifying parent that conversation was cleared");
       onConversationClear();
     }
   }, [onConversationClear]);
 
   // Load conversation when conversationId prop changes
   useEffect(() => {
+    console.log("🔍 useEffect triggered:", {
+      conversationId,
+      currentConversationId,
+    });
     if (conversationId && conversationId !== currentConversationId) {
+      console.log("🔄 Loading conversation:", conversationId);
       loadConversation(conversationId);
     } else if (!conversationId) {
+      console.log("🧹 Clearing conversation - no conversationId provided");
       // Clear current conversation if no conversationId provided
       handleClearChat();
     }
@@ -387,6 +496,14 @@ function ChatBot({
               )}...`}
             >
               💬 Active
+            </span>
+          )}
+          {queueStatus.queueLength > 0 && (
+            <span
+              className="queue-indicator"
+              title={`${queueStatus.queueLength} request(s) in queue`}
+            >
+              ⏳ Queue: {queueStatus.queueLength}
             </span>
           )}
           <button

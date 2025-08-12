@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Copy Button Demo - WordPress AI Assistant</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 2rem;
+        background-color: #1a1a1a;
+        color: #ffffff;
+      }
+
+      .demo-section {
+        background-color: #2a2a2a;
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin: 2rem 0;
+        border: 1px solid #404040;
+      }
+
+      .demo-title {
+        color: #60a5fa;
+        margin-bottom: 1rem;
+      }
+
+      /* Code Block Styles - Matching the app */
+      .code-block-wrapper {
+        position: relative;
+        margin: 0.5rem 0;
+      }
+
+      .code-block-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background-color: #2a2a2a;
+        border: 1px solid #404040;
+        border-bottom: none;
+        border-radius: 8px 8px 0 0;
+        padding: 0.5rem 1rem;
+        font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+        font-size: 0.75rem;
+        color: #9ca3af;
+      }
+
+      .code-language {
+        text-transform: uppercase;
+        font-weight: 500;
+        letter-spacing: 0.5px;
+      }
+
+      .copy-button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: none;
+        border: 1px solid #404040;
+        border-radius: 4px;
+        padding: 0.25rem;
+        cursor: pointer;
+        color: #9ca3af;
+        transition: all 0.2s ease;
+        min-width: 28px;
+        height: 28px;
+      }
+
+      .copy-button:hover {
+        background-color: #404040;
+        border-color: #60a5fa;
+        color: #60a5fa;
+      }
+
+      .copy-button:active {
+        transform: scale(0.95);
+      }
+
+      .code-block-wrapper pre {
+        margin: 0;
+        border-radius: 0 0 8px 8px;
+        border-top: none;
+        background-color: #1e1e1e;
+        border: 1px solid #404040;
+        padding: 1rem;
+        overflow-x: auto;
+        font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+        font-size: 0.875rem;
+        line-height: 1.5;
+        color: #ffffff;
+      }
+
+      .success-message {
+        background-color: #065f46;
+        color: #d1fae5;
+        padding: 0.5rem;
+        border-radius: 4px;
+        margin-top: 0.5rem;
+        font-size: 0.875rem;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Copy Button Demo</h1>
+    <p>
+      This demonstrates the copy button functionality that has been added to
+      code blocks in the WordPress AI Assistant chatbot.
+    </p>
+
+    <div class="demo-section">
+      <h2 class="demo-title">PHP Code Block Example</h2>
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span class="code-language">PHP</span>
+          <button
+            class="copy-button"
+            onclick="copyCode(this, 'php-code')"
+            title="Copy to clipboard"
+          >
+            📋
+          </button>
+        </div>
+        <pre><code id="php-code">function create_custom_post_type() {
+    register_post_type('book',
+        array(
+            'labels' => array(
+                'name' => 'Books',
+                'singular_name' => 'Book'
+            ),
+            'public' => true,
+            'has_archive' => true,
+            'supports' => array('title', 'editor', 'thumbnail')
+        )
+    );
+}
+add_action('init', 'create_custom_post_type');</code></pre>
+      </div>
+      <div class="success-message" id="php-success">
+        ✅ Code copied to clipboard!
+      </div>
+    </div>
+
+    <div class="demo-section">
+      <h2 class="demo-title">JavaScript Code Block Example</h2>
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span class="code-language">JavaScript</span>
+          <button
+            class="copy-button"
+            onclick="copyCode(this, 'js-code')"
+            title="Copy to clipboard"
+          >
+            📋
+          </button>
+        </div>
+        <pre><code id="js-code">function handleFormSubmit(event) {
+    event.preventDefault();
+    
+    const formData = new FormData(event.target);
+    const data = Object.fromEntries(formData);
+    
+    // Send data to server
+    fetch('/api/submit', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        console.log('Success:', result);
+    })
+    .catch(error => {
+        console.error('Error:', error);
+    });
+}</code></pre>
+      </div>
+      <div class="success-message" id="js-success">
+        ✅ Code copied to clipboard!
+      </div>
+    </div>
+
+    <div class="demo-section">
+      <h2 class="demo-title">CSS Code Block Example</h2>
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span class="code-language">CSS</span>
+          <button
+            class="copy-button"
+            onclick="copyCode(this, 'css-code')"
+            title="Copy to clipboard"
+          >
+            📋
+          </button>
+        </div>
+        <pre><code id="css-code">.custom-button {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 600;
+    padding: 12px 24px;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.custom-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+
+.custom-button:active {
+    transform: translateY(0);
+}</code></pre>
+      </div>
+      <div class="success-message" id="css-success">
+        ✅ Code copied to clipboard!
+      </div>
+    </div>
+
+    <div class="demo-section">
+      <h2 class="demo-title">Features Implemented</h2>
+      <ul>
+        <li>
+          ✅ <strong>Language Detection</strong>: Automatically shows
+          programming language in header
+        </li>
+        <li>
+          ✅ <strong>Copy Button</strong>: Clean, accessible button with hover
+          effects
+        </li>
+        <li>
+          ✅ <strong>Visual Feedback</strong>: Shows success message after
+          copying
+        </li>
+        <li>
+          ✅ <strong>Responsive Design</strong>: Works on all screen sizes
+        </li>
+        <li>
+          ✅ <strong>Accessibility</strong>: Proper title attributes and
+          keyboard support
+        </li>
+        <li>
+          ✅ <strong>Error Handling</strong>: Graceful fallback if clipboard
+          fails
+        </li>
+      </ul>
+    </div>
+
+    <div class="demo-section">
+      <h2 class="demo-title">How It Works in the Chatbot</h2>
+      <p>
+        When the AI responds with code blocks (like the examples above), each
+        code block will automatically:
+      </p>
+      <ol>
+        <li>Display a header showing the programming language</li>
+        <li>Show a copy button in the top-right corner</li>
+        <li>Copy the entire code content when clicked</li>
+        <li>Provide visual feedback that the copy was successful</li>
+      </ol>
+      <p>
+        <strong>Note:</strong> Inline code (like <code>wp_insert_post()</code>)
+        will not show copy buttons - only multi-line code blocks.
+      </p>
+    </div>
+
+    <script>
+      async function copyCode(button, codeId) {
+        const codeElement = document.getElementById(codeId);
+        const codeText = codeElement.textContent;
+        const successMessage =
+          button.parentElement.nextElementSibling.nextElementSibling;
+
+        try {
+          await navigator.clipboard.writeText(codeText);
+
+          // Show success message
+          successMessage.style.display = "block";
+
+          // Change button icon temporarily
+          const originalIcon = button.innerHTML;
+          button.innerHTML = "✅";
+          button.style.color = "#10b981";
+
+          // Reset after 2 seconds
+          setTimeout(() => {
+            button.innerHTML = originalIcon;
+            button.style.color = "";
+            successMessage.style.display = "none";
+          }, 2000);
+        } catch (err) {
+          console.error("Failed to copy code:", err);
+          alert("Failed to copy code to clipboard. Please try again.");
+        }
+      }
+    </script>
+  </body>
+</html>

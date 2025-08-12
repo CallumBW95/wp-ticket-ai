@@ -100,14 +100,107 @@ describe("TracScraper", () => {
   });
 
   describe("scrapeTicket", () => {
-    it("should handle successful response", async () => {
+    it("should scrape ticket details with comments", async () => {
       const mockHtml = `
         <html>
           <body>
             <div id="ticket">
               <div class="summary">Test Ticket</div>
               <div class="description">
-                <div class="searchable">Test description</div>
+                <div class="searchable">This is a test ticket description.</div>
+              </div>
+            </div>
+            <div class="properties">
+              <table>
+                <tr><th>Type</th><td>defect</td></tr>
+                <tr><th>Status</th><td>new</td></tr>
+                <tr><th>Priority</th><td>normal</td></tr>
+                <tr><th>Component</th><td>General</td></tr>
+                <tr><th>Reporter</th><td>testuser</td></tr>
+                <tr><th>Time</th><td>2024-01-01 12:00:00</td></tr>
+                <tr><th>Change Time</th><td>2024-01-01 12:00:00</td></tr>
+              </table>
+            </div>
+            <div class="change">
+              <div class="comment">This is a test comment.</div>
+              <div class="author">testuser</div>
+              <div class="time">2024-01-01 12:00:00</div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: async () => mockHtml,
+      });
+
+      const ticket = await scraper.scrapeTicket(12345);
+
+      expect(ticket).toBeDefined();
+      expect(ticket?.ticketId).toBe(12345);
+      expect(ticket?.title).toBe("Test Ticket");
+      expect(ticket?.description).toBe("This is a test ticket description.");
+      expect(ticket?.status).toBe("new");
+    });
+
+    it("should handle ticket without comments", async () => {
+      const mockHtml = `
+        <html>
+          <body>
+            <div id="ticket">
+              <div class="summary">Test Ticket</div>
+              <div class="description">
+                <div class="searchable">This is a test ticket description.</div>
+              </div>
+            </div>
+            <div class="properties">
+              <table>
+                <tr><th>Type</th><td>defect</td></tr>
+                <tr><th>Status</th><td>new</td></tr>
+                <tr><th>Priority</th><td>normal</td></tr>
+                <tr><th>Component</th><td>General</td></tr>
+                <tr><th>Reporter</th><td>testuser</td></tr>
+                <tr><th>Time</th><td>2024-01-01 12:00:00</td></tr>
+                <tr><th>Change Time</th><td>2024-01-01 12:00:00</td></tr>
+              </table>
+            </div>
+          </body>
+        </html>
+      `;
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: async () => mockHtml,
+      });
+
+      const ticket = await scraper.scrapeTicket(12345);
+
+      expect(ticket).toBeDefined();
+      expect(ticket?.comments).toHaveLength(0);
+      expect(ticket?.ticketId).toBe(12345);
+      expect(ticket?.title).toBe("Test Ticket");
+    });
+
+    it("should handle missing optional fields", async () => {
+      const mockHtml = `
+        <html>
+          <body>
+            <div id="ticket">
+              <div class="summary">Test Ticket</div>
+              <div class="description">
+                <div class="searchable">This is a test ticket description.</div>
+              </div>
+              <div class="properties">
+                <table>
+                  <tr><th>type</th><td>defect</td></tr>
+                  <tr><th>status</th><td>new</td></tr>
+                  <tr><th>priority</th><td>normal</td></tr>
+                  <tr><th>component</th><td>General</td></tr>
+                  <tr><th>reporter</th><td>testuser</td></tr>
+                  <tr><th>time</th><td>2024-01-01 12:00:00</td></tr>
+                  <tr><th>changetime</th><td>2024-01-01 12:00:00</td></tr>
+                </table>
               </div>
             </div>
           </body>
@@ -121,31 +214,13 @@ describe("TracScraper", () => {
 
       const ticket = await scraper.scrapeTicket(12345);
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        "https://core.trac.wordpress.org/ticket/12345",
-        {
-          headers: {
-            "User-Agent":
-              "WP-Aggregator-AI-Bot/1.0.0 (Educational/Research Purpose)",
-          },
-        }
-      );
-
-      // The actual parsing depends on cheerio, so we just test that the method completes
       expect(ticket).toBeDefined();
-    });
-
-    it("should handle ticket not found", async () => {
-      const mockHtml = `<html><body></body></html>`;
-
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: async () => mockHtml,
-      });
-
-      const ticket = await scraper.scrapeTicket(99999);
-
-      expect(ticket).toBeNull();
+      expect(ticket?.reporter).toBe("testuser");
+      expect(ticket?.owner).toBeUndefined();
+      expect(ticket?.ccList).toEqual([]);
+      expect(ticket?.keywords).toEqual([]);
+      expect(ticket?.milestone).toBeUndefined();
+      expect(ticket?.version).toBeUndefined();
     });
 
     it("should handle HTTP errors", async () => {
@@ -167,7 +242,29 @@ describe("TracScraper", () => {
     });
 
     it("should handle malformed HTML", async () => {
-      const malformedHtml = "<html><body><invalid>";
+      const malformedHtml = `
+        <html>
+          <body>
+            <div id="ticket">
+              <div class="summary">Test Ticket</div>
+              <div class="description">
+                <div class="searchable">This is a test ticket description.</div>
+              </div>
+            </div>
+            <div class="properties">
+              <table>
+                <tr><th>Type</th><td>defect</td></tr>
+                <tr><th>Status</th><td>new</td></tr>
+                <tr><th>Priority</th><td>normal</td></tr>
+                <tr><th>Component</th><td>General</td></tr>
+                <tr><th>Reporter</th><td>testuser</td></tr>
+                <tr><th>Time</th><td>2024-01-01 12:00:00</td></tr>
+                <tr><th>Change Time</th><td>2024-01-01 12:00:00</td></tr>
+              </table>
+            </div>
+          </body>
+        </html>
+      `;
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -175,7 +272,55 @@ describe("TracScraper", () => {
       });
 
       const ticket = await scraper.scrapeTicket(12345);
-      expect(ticket).toBeNull();
+
+      expect(ticket).toBeDefined();
+      expect(ticket?.ticketId).toBe(12345);
+      expect(ticket?.title).toBe("Test Ticket");
+      expect(ticket?.description).toBe("This is a test ticket description.");
+      expect(ticket?.comments).toHaveLength(0);
+    });
+
+    it("should handle comments with missing timestamps", async () => {
+      const mockHtml = `
+        <html>
+          <body>
+            <div id="ticket">
+              <div class="summary">Test Ticket</div>
+              <div class="description">
+                <div class="searchable">This is a test ticket description.</div>
+              </div>
+            </div>
+            <div class="properties">
+              <table>
+                <tr><th>Type</th><td>defect</td></tr>
+                <tr><th>Status</th><td>new</td></tr>
+                <tr><th>Priority</th><td>normal</td></tr>
+                <tr><th>Component</th><td>General</td></tr>
+                <tr><th>Reporter</th><td>testuser</td></tr>
+                <tr><th>Time</th><td>2024-01-01 12:00:00</td></tr>
+                <tr><th>Change Time</th><td>2024-01-01 12:00:00</td></tr>
+              </table>
+            </div>
+            <div class="change">
+              <div class="comment searchable">This is a test comment.</div>
+              <div class="trac-author">testuser</div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: async () => mockHtml,
+      });
+
+      const ticket = await scraper.scrapeTicket(12345);
+
+      expect(ticket).toBeDefined();
+      expect(ticket?.comments).toHaveLength(1);
+      expect(ticket?.comments[0].author).toBe("testuser");
+      expect(ticket?.comments[0].content).toBe("This is a test comment.");
+      expect(ticket?.comments[0].timestamp).toBeInstanceOf(Date);
     });
   });
 
@@ -195,7 +340,7 @@ describe("TracScraper", () => {
         text: async () => mockHtml,
       });
 
-      const ticket = await scraper.scrapeTicket(-1);
+      const ticket = await scraper.scrapeTicket(99999);
       expect(ticket).toBeNull();
     });
 

@@ -1,10 +1,6 @@
 // Service to integrate WordPress Trac tickets with the chatbot
 import { MCPToolCall } from "../types";
-
-const API_BASE_URL =
-  process.env.NODE_ENV === "production"
-    ? "https://your-api-domain.com" // Replace with your production API domain
-    : "http://localhost:3001";
+import { API_ENDPOINTS } from "../config/api";
 
 export interface TicketSearchResult {
   ticketId: number;
@@ -46,7 +42,7 @@ export async function searchTickets(
 ): Promise<TicketSearchResult[]> {
   try {
     const response = await fetch(
-      `${API_BASE_URL}/api/tickets/search/${encodeURIComponent(
+      `${API_ENDPOINTS.TICKET_SEARCH}/${encodeURIComponent(
         query
       )}?limit=${limit}`
     );
@@ -87,7 +83,7 @@ export async function searchTickets(
 // Helper function to call MCP tools from frontend
 async function callMCPFromFrontend(toolCall: MCPToolCall): Promise<any> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/mcp`, {
+    const response = await fetch(API_ENDPOINTS.MCP, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -144,7 +140,7 @@ async function callMCPFromFrontend(toolCall: MCPToolCall): Promise<any> {
 // Helper function to save ticket to database
 async function saveTicketToDatabase(ticketData: any): Promise<void> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/tickets/save`, {
+    const response = await fetch(API_ENDPOINTS.TICKET_SAVE, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -198,7 +194,7 @@ export async function getTicketDetails(
 ): Promise<TicketDetails | null> {
   try {
     // First, try to get the ticket from local database
-    const response = await fetch(`${API_BASE_URL}/api/tickets/${ticketId}`);
+    const response = await fetch(API_ENDPOINTS.TICKET_DETAILS(ticketId));
 
     if (response.ok) {
       const ticket = await response.json();
@@ -221,7 +217,7 @@ export async function getTicketDetails(
 
           // Fetch ticket with real comment data using scraper
           const scrapedResponse = await fetch(
-            `${API_BASE_URL}/api/tickets/scrape/${ticketId}`
+            API_ENDPOINTS.TICKET_SCRAPE(ticketId)
           );
           if (scrapedResponse.ok) {
             return await scrapedResponse.json();
@@ -281,7 +277,7 @@ export async function getTicketDetails(
               // Use scraper to get real comment data
               try {
                 const scrapedResponse = await fetch(
-                  `${API_BASE_URL}/api/tickets/scrape/${ticketId}`
+                  API_ENDPOINTS.TICKET_SCRAPE(ticketId)
                 );
                 if (scrapedResponse.ok) {
                   return await scrapedResponse.json();
@@ -549,7 +545,7 @@ export async function getRecentTickets(
   days = 7
 ): Promise<TicketSearchResult[]> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/tickets/recent/${days}`);
+    const response = await fetch(API_ENDPOINTS.TICKET_RECENT(days));
 
     if (!response.ok) {
       throw new Error(`API request failed: ${response.status}`);
@@ -564,7 +560,7 @@ export async function getRecentTickets(
 
 export async function getTicketStats(): Promise<any> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/tickets/stats/summary`);
+    const response = await fetch(API_ENDPOINTS.TICKET_STATS);
 
     if (!response.ok) {
       throw new Error(`API request failed: ${response.status}`);
@@ -583,9 +579,7 @@ export async function getTicketsByComponent(
 ): Promise<TicketSearchResult[]> {
   try {
     const response = await fetch(
-      `${API_BASE_URL}/api/tickets?component=${encodeURIComponent(
-        component
-      )}&limit=${limit}`
+      `${API_ENDPOINTS.TICKET_BY_COMPONENT(component)}&limit=${limit}`
     );
 
     if (!response.ok) {
@@ -606,9 +600,7 @@ export async function getTicketsByStatus(
 ): Promise<TicketSearchResult[]> {
   try {
     const response = await fetch(
-      `${API_BASE_URL}/api/tickets?status=${encodeURIComponent(
-        status
-      )}&limit=${limit}`
+      `${API_ENDPOINTS.TICKET_BY_STATUS(status)}&limit=${limit}`
     );
 
     if (!response.ok) {
@@ -631,9 +623,7 @@ export async function getTicketWithFullComments(
     console.log(`🔄 Getting ticket ${ticketId} with full comment data...`);
 
     // Always use the scraper endpoint for this function to ensure real comments
-    const response = await fetch(
-      `${API_BASE_URL}/api/tickets/scrape/${ticketId}`
-    );
+    const response = await fetch(API_ENDPOINTS.TICKET_SCRAPE(ticketId));
 
     if (response.ok) {
       const ticket = await response.json();

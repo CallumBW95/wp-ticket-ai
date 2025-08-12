@@ -12,6 +12,331 @@ let genAI: GoogleGenerativeAI;
 let model: GenerativeModel;
 let chatSession: ChatSession;
 
+// Request queue and throttling
+interface QueuedRequest {
+  id: string;
+  message: string;
+  resolve: (value: string) => void;
+  reject: (error: Error) => void;
+  retryCount: number;
+  timestamp: number;
+}
+
+class RequestQueue {
+  private queue: QueuedRequest[] = [];
+  private processing = false;
+  private lastRequestTime = 0;
+  private readonly minDelayBetweenRequests = 1000; // 1 second minimum between requests
+  private readonly maxDelayBetweenRequests = 5000; // 5 seconds maximum
+  private readonly maxRetries = 3;
+  private readonly baseRetryDelay = 2000; // 2 seconds
+
+  async addRequest(message: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const request: QueuedRequest = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        message,
+        resolve,
+        reject,
+        retryCount: 0,
+        timestamp: Date.now(),
+      };
+
+      this.queue.push(request);
+      this.processQueue();
+    });
+  }
+
+  private async processQueue() {
+    if (this.processing || this.queue.length === 0) {
+      return;
+    }
+
+    this.processing = true;
+
+    while (this.queue.length > 0) {
+      const request = this.queue.shift()!;
+      
+      // Ensure minimum delay between requests
+      const timeSinceLastRequest = Date.now() - this.lastRequestTime;
+      if (timeSinceLastRequest < this.minDelayBetweenRequests) {
+        await new Promise(resolve => 
+          setTimeout(resolve, this.minDelayBetweenRequests - timeSinceLastRequest)
+        );
+      }
+
+      try {
+        console.log(`🔄 Processing request ${request.id} (${this.queue.length} remaining in queue)`);
+        this.lastRequestTime = Date.now();
+        
+        const result = await this.sendMessageWithRetry(request.message, request.retryCount);
+        request.resolve(result);
+      } catch (error) {
+        if (request.retryCount < this.maxRetries && this.shouldRetry(error)) {
+          // Exponential backoff
+          const delay = this.baseRetryDelay * Math.pow(2, request.retryCount);
+          console.log(`🔄 Retrying request ${request.id} in ${delay}ms (attempt ${request.retryCount + 1}/${this.maxRetries})`);
+          
+          request.retryCount++;
+          request.timestamp = Date.now();
+          
+          // Add back to queue with delay
+          setTimeout(() => {
+            this.queue.unshift(request);
+            this.processQueue();
+          }, delay);
+        } else {
+          request.reject(error as Error);
+        }
+      }
+    }
+
+    this.processing = false;
+  }
+
+  private shouldRetry(error: any): boolean {
+    if (!(error instanceof Error)) return false;
+    
+    const message = error.message.toLowerCase();
+    return (
+      message.includes("rate") ||
+      message.includes("quota") ||
+      message.includes("429") ||
+      message.includes("503") ||
+      message.includes("overloaded") ||
+      message.includes("timeout") ||
+      message.includes("network")
+    );
+  }
+
+  private async sendMessageWithRetry(message: string, retryCount: number): Promise<string> {
+    if (!chatSession) {
+      throw new Error("Gemini not initialized");
+    }
+
+    try {
+      console.log("📤 Sending message to Gemini:", message);
+      const result = await chatSession.sendMessage(message);
+      const response = await result.response;
+      console.log("📥 Got response from Gemini");
+      console.log("📄 Raw response text:", response.text());
+
+      // Handle function calls if present
+      const functionCalls = response.functionCalls();
+      console.log(
+        "🔍 Function calls detected:",
+        functionCalls ? functionCalls.length : 0
+      );
+      console.log("🔍 Raw function calls object:", functionCalls);
+
+      if (functionCalls && functionCalls.length > 0) {
+        console.log(
+          `🛠️ Calling ${functionCalls.length} functions:`,
+          functionCalls.map((f) => f.name)
+        );
+        console.log(
+          "📋 Function call details:",
+          functionCalls.map((f) => ({ name: f.name, args: f.args }))
+        );
+        const toolResults: MCPToolResult[] = [];
+
+        // Add delay between tool calls to prevent rate limiting
+        for (let i = 0; i < functionCalls.length; i++) {
+          const functionCall = functionCalls[i];
+          
+          // Add delay between tool calls (except for the first one)
+          if (i > 0) {
+            await new Promise(resolve => setTimeout(resolve, 500)); // 500ms between tool calls
+          }
+          
+          try {
+            let toolResult: MCPToolResult;
+
+            // Check if it's a ticket search tool
+            if (isTicketSearchTool(functionCall.name)) {
+              console.log(`🎫 Calling ticket search tool: ${functionCall.name}`);
+              toolResult = await callTicketTool(
+                functionCall.name,
+                functionCall.args || {}
+              );
+            } else if (isGitHubTool(functionCall.name)) {
+              // Handle GitHub tools
+              console.log(`🐙 Calling GitHub tool: ${functionCall.name}`);
+              toolResult = await callGitHubTool(
+                functionCall.name,
+                functionCall.args || {}
+              );
+            } else {
+              // Handle MCP tools
+              console.log(`🔗 Calling MCP tool: ${functionCall.name}`);
+              const toolCall: MCPToolCall = {
+                name: functionCall.name,
+                arguments: functionCall.args || {},
+              };
+              toolResult = await callMCPTool(toolCall);
+            }
+
+            console.log(`✅ Tool ${functionCall.name} result:`, toolResult);
+
+            toolResults.push(toolResult);
+          } catch (error) {
+            console.error(`🚨 Tool ${functionCall.name} failed:`, error);
+
+            let toolErrorMessage = `Tool "${functionCall.name}" failed`;
+            let toolErrorDetails = "";
+
+            if (error instanceof Error) {
+              if (error.message.includes("timeout")) {
+                toolErrorDetails =
+                  "The tool took too long to respond. This usually happens with large data requests";
+              } else if (
+                error.message.includes("network") ||
+                error.message.includes("fetch")
+              ) {
+                toolErrorDetails =
+                  "Network connection error while calling external service";
+              } else if (
+                error.message.includes("404") ||
+                error.message.includes("not found")
+              ) {
+                toolErrorDetails = "The requested resource was not found";
+              } else if (
+                error.message.includes("401") ||
+                error.message.includes("unauthorized")
+              ) {
+                toolErrorDetails =
+                  "Authentication failed - please check API credentials";
+              } else if (
+                error.message.includes("403") ||
+                error.message.includes("forbidden")
+              ) {
+                toolErrorDetails = "Access denied - insufficient permissions";
+              } else if (
+                error.message.includes("500") ||
+                error.message.includes("internal server")
+              ) {
+                toolErrorDetails = "External service is experiencing issues";
+              } else if (
+                error.message.includes("parse") ||
+                error.message.includes("JSON")
+              ) {
+                toolErrorDetails =
+                  "Invalid response format from external service";
+              } else {
+                toolErrorDetails = error.message;
+              }
+            }
+
+            toolResults.push({
+              content: [
+                {
+                  type: "text",
+                  text: `❌ ${toolErrorMessage}${
+                    toolErrorDetails ? `\n💡 ${toolErrorDetails}` : ""
+                  }\n\nTool: ${functionCall.name}\nArguments: ${JSON.stringify(
+                    functionCall.args,
+                    null,
+                    2
+                  )}`,
+                },
+              ],
+              isError: true,
+            });
+          }
+        }
+
+        // Add delay before sending tool results back
+        await new Promise(resolve => setTimeout(resolve, 300));
+
+        // Send tool results back to get final response
+        const toolResponse = await chatSession.sendMessage(
+          toolResults.map((result) => ({
+            functionResponse: {
+              name: functionCalls[toolResults.indexOf(result)].name,
+              response: result,
+            },
+          }))
+        );
+
+        return toolResponse.response.text();
+      } else {
+        console.log("ℹ️ No function calls made, returning direct response");
+      }
+
+      return response.text();
+    } catch (error) {
+      console.error("Error sending message to Gemini:", error);
+
+      // Enhanced error handling with specific error details
+      let errorMessage = "Failed to get response from Gemini";
+      let errorDetails = "";
+
+      if (error instanceof Error) {
+        // Handle specific Gemini API errors
+        if (error.message.includes("API_KEY")) {
+          errorMessage = "Invalid Google Gemini API key";
+          errorDetails =
+            "Please check your GOOGLE_GEMINI_API_KEY environment variable";
+        } else if (error.message.includes("quota")) {
+          errorMessage = "Gemini API quota exceeded";
+          errorDetails =
+            "You've reached your API usage limit. Please try again later or check your Google Cloud quota";
+        } else if (error.message.includes("rate")) {
+          errorMessage = "Too many requests to Gemini API";
+          errorDetails = "Please wait a moment before sending another message";
+        } else if (
+          error.message.includes("network") ||
+          error.message.includes("fetch")
+        ) {
+          errorMessage = "Network connection error";
+          errorDetails =
+            "Unable to connect to Google Gemini API. Please check your internet connection";
+        } else if (
+          error.message.includes("blocked") ||
+          error.message.includes("safety")
+        ) {
+          errorMessage = "Message blocked by safety filters";
+          errorDetails =
+            "Your message was flagged by Google's safety systems. Please rephrase your question";
+        } else if (error.message.includes("model")) {
+          errorMessage = "Gemini model error";
+          errorDetails = `Model issue: ${error.message}`;
+        } else if (error.message.includes("timeout")) {
+          errorMessage = "Request timeout";
+          errorDetails =
+            "The AI model took too long to respond. Please try with a shorter message";
+        } else if (
+          error.message.includes("503") ||
+          error.message.includes("overloaded")
+        ) {
+          errorMessage = "Gemini model is currently overloaded";
+          errorDetails =
+            "Google's servers are experiencing high demand. Please wait a few minutes and try again";
+        } else {
+          errorMessage = "Gemini API error";
+          errorDetails = error.message;
+        }
+      }
+
+      const enhancedError = new Error(
+        `${errorMessage}${errorDetails ? `: ${errorDetails}` : ""}`
+      );
+      enhancedError.name = "GeminiError";
+      throw enhancedError;
+    }
+  }
+
+  getQueueLength(): number {
+    return this.queue.length;
+  }
+
+  isProcessing(): boolean {
+    return this.processing;
+  }
+}
+
+const requestQueue = new RequestQueue();
+
 function getSystemPrompt(): string {
   const currentDate = new Date();
   const dateString = currentDate.toLocaleDateString("en-US", {
@@ -297,229 +622,8 @@ export async function sendMessage(
   message: string,
   retryCount = 0
 ): Promise<string> {
-  if (!chatSession) {
-    throw new Error("Gemini not initialized");
-  }
-
-  const maxRetries = 2;
-  const retryDelay = 2000; // 2 seconds
-
-  try {
-    console.log("📤 Sending message to Gemini:", message);
-    const result = await chatSession.sendMessage(message);
-    const response = await result.response;
-    console.log("📥 Got response from Gemini");
-    console.log("📄 Raw response text:", response.text());
-
-    // Handle function calls if present
-    const functionCalls = response.functionCalls();
-    console.log(
-      "🔍 Function calls detected:",
-      functionCalls ? functionCalls.length : 0
-    );
-    console.log("🔍 Raw function calls object:", functionCalls);
-
-    if (functionCalls && functionCalls.length > 0) {
-      console.log(
-        `🛠️ Calling ${functionCalls.length} functions:`,
-        functionCalls.map((f) => f.name)
-      );
-      console.log(
-        "📋 Function call details:",
-        functionCalls.map((f) => ({ name: f.name, args: f.args }))
-      );
-      const toolResults: MCPToolResult[] = [];
-
-      for (const functionCall of functionCalls) {
-        try {
-          let toolResult: MCPToolResult;
-
-          // Check if it's a ticket search tool
-          if (isTicketSearchTool(functionCall.name)) {
-            console.log(`🎫 Calling ticket search tool: ${functionCall.name}`);
-            toolResult = await callTicketTool(
-              functionCall.name,
-              functionCall.args || {}
-            );
-          } else if (isGitHubTool(functionCall.name)) {
-            // Handle GitHub tools
-            console.log(`🐙 Calling GitHub tool: ${functionCall.name}`);
-            toolResult = await callGitHubTool(
-              functionCall.name,
-              functionCall.args || {}
-            );
-          } else {
-            // Handle MCP tools
-            console.log(`🔗 Calling MCP tool: ${functionCall.name}`);
-            const toolCall: MCPToolCall = {
-              name: functionCall.name,
-              arguments: functionCall.args || {},
-            };
-            toolResult = await callMCPTool(toolCall);
-          }
-
-          console.log(`✅ Tool ${functionCall.name} result:`, toolResult);
-
-          toolResults.push(toolResult);
-        } catch (error) {
-          console.error(`🚨 Tool ${functionCall.name} failed:`, error);
-
-          let toolErrorMessage = `Tool "${functionCall.name}" failed`;
-          let toolErrorDetails = "";
-
-          if (error instanceof Error) {
-            if (error.message.includes("timeout")) {
-              toolErrorDetails =
-                "The tool took too long to respond. This usually happens with large data requests";
-            } else if (
-              error.message.includes("network") ||
-              error.message.includes("fetch")
-            ) {
-              toolErrorDetails =
-                "Network connection error while calling external service";
-            } else if (
-              error.message.includes("404") ||
-              error.message.includes("not found")
-            ) {
-              toolErrorDetails = "The requested resource was not found";
-            } else if (
-              error.message.includes("401") ||
-              error.message.includes("unauthorized")
-            ) {
-              toolErrorDetails =
-                "Authentication failed - please check API credentials";
-            } else if (
-              error.message.includes("403") ||
-              error.message.includes("forbidden")
-            ) {
-              toolErrorDetails = "Access denied - insufficient permissions";
-            } else if (
-              error.message.includes("500") ||
-              error.message.includes("internal server")
-            ) {
-              toolErrorDetails = "External service is experiencing issues";
-            } else if (
-              error.message.includes("parse") ||
-              error.message.includes("JSON")
-            ) {
-              toolErrorDetails =
-                "Invalid response format from external service";
-            } else {
-              toolErrorDetails = error.message;
-            }
-          }
-
-          toolResults.push({
-            content: [
-              {
-                type: "text",
-                text: `❌ ${toolErrorMessage}${
-                  toolErrorDetails ? `\n💡 ${toolErrorDetails}` : ""
-                }\n\nTool: ${functionCall.name}\nArguments: ${JSON.stringify(
-                  functionCall.args,
-                  null,
-                  2
-                )}`,
-              },
-            ],
-            isError: true,
-          });
-        }
-      }
-
-      // Send tool results back to get final response
-      const toolResponse = await chatSession.sendMessage(
-        toolResults.map((result) => ({
-          functionResponse: {
-            name: functionCalls[toolResults.indexOf(result)].name,
-            response: result,
-          },
-        }))
-      );
-
-      return toolResponse.response.text();
-    } else {
-      console.log("ℹ️ No function calls made, returning direct response");
-    }
-
-    return response.text();
-  } catch (error) {
-    console.error("Error sending message to Gemini:", error);
-
-    // Enhanced error handling with specific error details
-    let errorMessage = "Failed to get response from Gemini";
-    let errorDetails = "";
-
-    if (error instanceof Error) {
-      // Handle specific Gemini API errors
-      if (error.message.includes("API_KEY")) {
-        errorMessage = "Invalid Google Gemini API key";
-        errorDetails =
-          "Please check your GOOGLE_GEMINI_API_KEY environment variable";
-      } else if (error.message.includes("quota")) {
-        errorMessage = "Gemini API quota exceeded";
-        errorDetails =
-          "You've reached your API usage limit. Please try again later or check your Google Cloud quota";
-      } else if (error.message.includes("rate")) {
-        errorMessage = "Too many requests to Gemini API";
-        errorDetails = "Please wait a moment before sending another message";
-      } else if (
-        error.message.includes("network") ||
-        error.message.includes("fetch")
-      ) {
-        errorMessage = "Network connection error";
-        errorDetails =
-          "Unable to connect to Google Gemini API. Please check your internet connection";
-      } else if (
-        error.message.includes("blocked") ||
-        error.message.includes("safety")
-      ) {
-        errorMessage = "Message blocked by safety filters";
-        errorDetails =
-          "Your message was flagged by Google's safety systems. Please rephrase your question";
-      } else if (error.message.includes("model")) {
-        errorMessage = "Gemini model error";
-        errorDetails = `Model issue: ${error.message}`;
-      } else if (error.message.includes("timeout")) {
-        errorMessage = "Request timeout";
-        errorDetails =
-          "The AI model took too long to respond. Please try with a shorter message";
-      } else if (
-        error.message.includes("503") ||
-        error.message.includes("overloaded")
-      ) {
-        errorMessage = "Gemini model is currently overloaded";
-        errorDetails =
-          "Google's servers are experiencing high demand. Please wait a few minutes and try again";
-      } else {
-        errorMessage = "Gemini API error";
-        errorDetails = error.message;
-      }
-    }
-
-    // Retry logic for overloaded model
-    if (
-      retryCount < maxRetries &&
-      error instanceof Error &&
-      (error.message.includes("503") || error.message.includes("overloaded"))
-    ) {
-      console.log(
-        `🔄 Retrying request (attempt ${
-          retryCount + 1
-        }/${maxRetries}) due to overloaded model`
-      );
-      await new Promise((resolve) =>
-        setTimeout(resolve, retryDelay * (retryCount + 1))
-      );
-      return sendMessage(message, retryCount + 1);
-    }
-
-    const enhancedError = new Error(
-      `${errorMessage}${errorDetails ? `: ${errorDetails}` : ""}`
-    );
-    enhancedError.name = "GeminiError";
-    throw enhancedError;
-  }
+  // Use the request queue to handle rate limiting and throttling
+  return requestQueue.addRequest(message);
 }
 
 export function resetChat(): void {
@@ -547,6 +651,19 @@ export function resetChat(): void {
       },
     });
   }
+}
+
+// Queue status functions for monitoring
+export function getQueueStatus() {
+  return {
+    queueLength: requestQueue.getQueueLength(),
+    isProcessing: requestQueue.isProcessing(),
+  };
+}
+
+export function clearQueue() {
+  // This would need to be implemented in the RequestQueue class if needed
+  console.log("🔄 Queue clear requested");
 }
 
 // Ticket search tools definition

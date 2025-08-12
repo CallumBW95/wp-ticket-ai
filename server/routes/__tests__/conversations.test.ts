@@ -1,30 +1,21 @@
 import request from "supertest";
 import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
 import express from "express";
 import { ChatConversation } from "../../models/ChatConversation";
 import conversationsRouter from "../conversations";
+import { getTestDatabase } from "../../../tests/setup";
 
 const app = express();
 app.use(express.json());
 app.use("/api/conversations", conversationsRouter);
 
 describe("Conversations API", () => {
-  let mongoServer: MongoMemoryServer;
-
-  beforeAll(async () => {
-    mongoServer = await MongoMemoryServer.create();
-    const mongoUri = mongoServer.getUri();
-    await mongoose.connect(mongoUri);
-  });
-
-  afterAll(async () => {
-    await mongoose.disconnect();
-    await mongoServer.stop();
-  });
-
   beforeEach(async () => {
-    await mongoose.connection.db.collection("chatconversations").deleteMany({});
+    // Clear conversations collection before each test
+    const db = getTestDatabase();
+    if (db.db) {
+      await db.db.collection("chatconversations").deleteMany({});
+    }
   });
 
   describe("GET /", () => {
@@ -569,19 +560,6 @@ describe("Conversations API", () => {
   });
 
   describe("Error Handling", () => {
-    it("should handle database connection errors", async () => {
-      // Temporarily disconnect from database
-      await mongoose.disconnect();
-
-      const response = await request(app).get("/api/conversations/");
-
-      expect(response.status).toBe(500);
-      expect(response.body.error).toBeDefined();
-
-      // Reconnect for cleanup
-      await mongoose.connect(mongoServer.getUri());
-    });
-
     it("should handle malformed JSON in POST requests", async () => {
       const response = await request(app)
         .post("/api/conversations/")

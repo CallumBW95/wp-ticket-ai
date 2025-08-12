@@ -1,6 +1,6 @@
-import { useEffect, useRef, useMemo } from "react";
+import { useEffect, useRef, useMemo, useState } from "react";
 import { Message } from "../types";
-import { User, Bot, AlertCircle, Loader2 } from "lucide-react";
+import { User, Bot, AlertCircle, Loader2, Copy, Check } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -9,6 +9,67 @@ interface MessageListProps {
   messages: Message[];
   isLoading: boolean;
   error: string | null;
+}
+
+// Custom code block component with copy button
+function CodeBlock({ className, children, ...props }: any) {
+  const [copied, setCopied] = useState(false);
+  const match = /language-(\w+)/.exec(className || "");
+  const isCodeBlock = !props.inline && match;
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(String(children));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy code:", err);
+    }
+  };
+
+  if (!isCodeBlock) {
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
+  }
+
+  return (
+    <div className="code-block-wrapper">
+      <div className="code-block-header">
+        <span className="code-language">{match[1]}</span>
+        <button
+          className="copy-button"
+          onClick={handleCopy}
+          title="Copy to clipboard"
+        >
+          {copied ? <Check size={16} /> : <Copy size={16} />}
+        </button>
+      </div>
+      <pre className={className}>
+        <code className={className} {...props}>
+          {children}
+        </code>
+      </pre>
+    </div>
+  );
+}
+
+// Function to highlight WordPress Trac usernames with subtle styling
+function highlightUsernames(text: string): string {
+  // Only highlight @username format - very conservative approach
+  const usernamePattern = /@([a-zA-Z][a-zA-Z0-9_-]{2,20})/g;
+
+  return text.replace(usernamePattern, (match, username) => {
+    // Skip if it's already wrapped in HTML tags
+    if (match.includes("<") || match.includes(">")) {
+      return match;
+    }
+
+    // Only highlight @username format
+    return `<span class="username-highlight">@${username}</span>`;
+  });
 }
 
 function MessageList({ messages, isLoading, error }: MessageListProps) {
@@ -74,20 +135,7 @@ function MessageList({ messages, isLoading, error }: MessageListProps) {
                   remarkPlugins={[remarkGfm]}
                   rehypePlugins={[rehypeHighlight]}
                   components={{
-                    code({ node, inline, className, children, ...props }) {
-                      const match = /language-(\w+)/.exec(className || "");
-                      return !inline && match ? (
-                        <pre className={className}>
-                          <code className={className} {...props}>
-                            {children}
-                          </code>
-                        </pre>
-                      ) : (
-                        <code className={className} {...props}>
-                          {children}
-                        </code>
-                      );
-                    },
+                    code: CodeBlock,
                     h1: ({ children }) => (
                       <h1 className="markdown-h1">{children}</h1>
                     ),
@@ -149,7 +197,7 @@ function MessageList({ messages, isLoading, error }: MessageListProps) {
                     ),
                   }}
                 >
-                  {message.content}
+                  {highlightUsernames(message.content)}
                 </ReactMarkdown>
               ) : (
                 message.content

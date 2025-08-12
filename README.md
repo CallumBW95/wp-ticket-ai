@@ -52,7 +52,23 @@ A web-based chat bot built with React, TypeScript, and Node.js that uses Google 
    ENABLE_SCRAPING=false
    ```
 
-3. **Set up MongoDB Atlas (Cloud Database):**
+3. **Port Configuration (Optional):**
+
+   The development environment automatically handles port conflicts, but you can specify custom ports:
+
+   ```bash
+   # Frontend port (default: auto-find from 3000)
+   FRONTEND_PORT=3000
+   # Alternative: VITE_PORT=3000
+
+   # Backend port (default: auto-find from 3001)  
+   BACKEND_PORT=3001
+   # Alternative: PORT=3001
+   ```
+
+   **Port Auto-Switching**: If no custom ports are specified, the system will automatically find available ports starting from 3000 (frontend) and 3001 (backend).
+
+4. **Set up MongoDB Atlas (Cloud Database):**
 
    We use MongoDB Atlas for a reliable, cloud-based database:
 
@@ -102,7 +118,7 @@ A web-based chat bot built with React, TypeScript, and Node.js that uses Google 
 
    📋 **Need more help?** See the detailed [MongoDB Atlas Setup Guide](./MONGODB_ATLAS_SETUP.md)
 
-4. **Start the development server:**
+5. **Start the development server:**
 
    ```bash
    npm run dev
@@ -110,10 +126,10 @@ A web-based chat bot built with React, TypeScript, and Node.js that uses Google 
 
    This starts both the React frontend (port 3000) and Express API server (port 3001)
 
-5. **Open your browser:**
+6. **Open your browser:**
    Navigate to `http://localhost:3000`
 
-6. **Populate the ticket database (optional):**
+7. **Populate the ticket database (optional):**
 
    ```bash
    # Scrape recent tickets

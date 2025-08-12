@@ -1,23 +1,14 @@
 import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
 import { Ticket, ITicket } from "../Ticket";
+import { getTestDatabase, createTestData } from "../../../tests/setup";
 
 describe("Ticket Model", () => {
-  let mongoServer: MongoMemoryServer;
-
-  beforeAll(async () => {
-    mongoServer = await MongoMemoryServer.create();
-    const mongoUri = mongoServer.getUri();
-    await mongoose.connect(mongoUri);
-  });
-
-  afterAll(async () => {
-    await mongoose.disconnect();
-    await mongoServer.stop();
-  });
-
   beforeEach(async () => {
-    await mongoose.connection.db.collection("tickets").deleteMany({});
+    // Clear tickets collection before each test
+    const db = getTestDatabase();
+    if (db.db) {
+      await db.db.collection("tickets").deleteMany({});
+    }
   });
 
   describe("Schema Validation", () => {
@@ -32,7 +23,7 @@ describe("Ticket Model", () => {
         component: "test-component",
         reporter: "testuser",
         owner: "testowner",
-        cc: ["user1", "user2"],
+        ccList: ["user1", "user2"],
         keywords: ["test", "bug"],
         milestone: "6.0",
         version: "6.0",
@@ -47,6 +38,11 @@ describe("Ticket Model", () => {
             timestamp: new Date(),
           },
         ],
+        attachments: [],
+        relatedChangesets: [],
+        focuses: [],
+        blockedBy: [],
+        blocking: [],
       });
 
       const savedTicket = await validTicket.save();
@@ -265,7 +261,7 @@ describe("Ticket Model", () => {
         component: "test-component",
         reporter: "testuser",
         owner: "testowner",
-        cc: ["user1", "user2"],
+        ccList: ["user1", "user2"],
         keywords: ["test", "bug"],
         milestone: "6.0",
         version: "6.0",
@@ -276,7 +272,7 @@ describe("Ticket Model", () => {
       expect(savedTicket.component).toBe("test-component");
       expect(savedTicket.reporter).toBe("testuser");
       expect(savedTicket.owner).toBe("testowner");
-      expect(savedTicket.cc).toEqual(["user1", "user2"]);
+      expect(savedTicket.ccList).toEqual(["user1", "user2"]);
       expect(savedTicket.keywords).toEqual(["test", "bug"]);
       expect(savedTicket.milestone).toBe("6.0");
       expect(savedTicket.version).toBe("6.0");

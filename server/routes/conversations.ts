@@ -140,17 +140,32 @@ router.get("/:conversationId", async (req, res) => {
   try {
     const { conversationId } = req.params;
 
+    console.log("📥 Fetching conversation:", conversationId);
+
     const conversation = await ChatConversation.findOne({
       conversationId,
-    }).lean();
+    }); // Remove .lean() to return a proper Mongoose document
 
     if (!conversation) {
+      console.error("❌ Conversation not found:", conversationId);
       return res.status(404).json({ error: "Conversation not found" });
     }
 
+    console.log("✅ Conversation retrieved:", {
+      conversationId: conversation.conversationId,
+      title: conversation.title,
+      messageCount: conversation.messageCount,
+      actualMessages: conversation.messages.length,
+      messages: conversation.messages.map((m) => ({
+        role: m.role,
+        contentLength: m.content.length,
+        timestamp: m.timestamp,
+      })),
+    });
+
     res.json(conversation);
   } catch (error) {
-    console.error("Error fetching conversation:", error);
+    console.error("❌ Error fetching conversation:", error);
     res.status(500).json({ error: "Failed to fetch conversation" });
   }
 });
@@ -205,6 +220,13 @@ router.post("/:conversationId/messages", async (req, res) => {
     const { conversationId } = req.params;
     const { role, content, ticketsReferenced, toolsUsed } = req.body;
 
+    console.log("📝 Adding message to conversation:", {
+      conversationId,
+      role,
+      contentLength: content.length,
+      contentPreview: content.substring(0, 100) + "...",
+    });
+
     if (!role || !content) {
       return res.status(400).json({ error: "Role and content are required" });
     }
@@ -218,8 +240,15 @@ router.post("/:conversationId/messages", async (req, res) => {
     const conversation = await ChatConversation.findOne({ conversationId });
 
     if (!conversation) {
+      console.error("❌ Conversation not found:", conversationId);
       return res.status(404).json({ error: "Conversation not found" });
     }
+
+    console.log("📋 Conversation before adding message:", {
+      conversationId: conversation.conversationId,
+      currentMessageCount: conversation.messageCount,
+      currentMessages: conversation.messages.length,
+    });
 
     const newMessage: IChatMessage = {
       role,
@@ -229,10 +258,24 @@ router.post("/:conversationId/messages", async (req, res) => {
       toolsUsed: toolsUsed || [],
     };
 
+    // Add the new message to the conversation
     conversation.messages.push(newMessage);
+
+    // Update the timestamp - this will trigger the pre-save middleware
     conversation.updatedAt = new Date();
 
+    console.log("💾 Saving conversation with new message...");
+
+    // Save the conversation - this will trigger the pre-save middleware
+    // which will update messageCount, lastActivity, ticketNumbers, topics, and title
     await conversation.save();
+
+    console.log("✅ Conversation saved successfully:", {
+      conversationId: conversation.conversationId,
+      newMessageCount: conversation.messageCount,
+      newMessages: conversation.messages.length,
+      title: conversation.title,
+    });
 
     res.json({
       success: true,
@@ -241,7 +284,7 @@ router.post("/:conversationId/messages", async (req, res) => {
       title: conversation.title,
     });
   } catch (error) {
-    console.error("Error adding message:", error);
+    console.error("❌ Error adding message:", error);
     res.status(500).json({ error: "Failed to add message" });
   }
 });
