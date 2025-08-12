@@ -68,6 +68,127 @@ A web-based chat bot built with React, TypeScript, and Node.js that uses Google 
 
    **Port Auto-Switching**: If no custom ports are specified, the system will automatically find available ports starting from 3000 (frontend) and 3001 (backend).
 
+4. **Start the development environment:**
+
+   ```bash
+   # Start both frontend and backend (recommended)
+   npm run dev
+
+   # Start with tests first (if you want to ensure tests pass)
+   npm run dev:safe
+
+   # Start only the backend server
+   npm run server
+
+   # Start only the frontend
+   npm run dev:client
+   ```
+
+5. **Production deployment:**
+
+   ```bash
+   # Build the project
+   npm run build
+
+   # Start production server
+   npm start
+   ```
+
+## Error Handling & Troubleshooting
+
+The server now provides **clear, actionable error messages** to help you quickly identify and fix startup issues:
+
+### 🚫 **Database Connection Errors**
+
+If you see database connection errors:
+
+```
+❌ CRITICAL ERROR: Failed to connect to MongoDB!
+🔧 This usually means:
+   1. Your MongoDB Atlas cluster is not running
+   2. Your IP address is not whitelisted
+   3. Your username/password is incorrect
+   4. Network connectivity issues
+```
+
+**Quick fixes:**
+- ✅ Check your `.env` file has the correct `MONGODB_URI`
+- ✅ Verify your MongoDB Atlas cluster is running
+- ✅ Whitelist your IP address in MongoDB Atlas
+- ✅ Test your connection string in MongoDB Compass
+
+### 🔌 **Port Conflicts**
+
+If you see port conflicts:
+
+```
+❌ No available ports found in range 3001-3010!
+🔧 All ports in this range are currently in use.
+💡 Try:
+   1. Stopping other services using these ports
+   2. Using a different port range
+   3. Setting a custom port via PORT environment variable
+```
+
+**Quick fixes:**
+- ✅ Kill processes using the ports: `lsof -ti:3001 | xargs kill -9`
+- ✅ Set a custom port: `PORT=4000 npm run dev`
+- ✅ Use the auto-port-finding feature (default behavior)
+
+### 🔑 **Missing Environment Variables**
+
+If you see missing environment variable errors:
+
+```
+❌ CRITICAL ERROR: MONGODB_URI environment variable is missing!
+🔧 To fix this:
+   1. Create a .env file in your project root
+   2. Add: MONGODB_URI=your_mongodb_connection_string
+   3. Get your connection string from MongoDB Atlas
+```
+
+**Quick fixes:**
+- ✅ Copy `.env.example` to `.env`
+- ✅ Fill in your actual API keys and database URI
+- ✅ Restart the server
+
+### 🧪 **Test Failures**
+
+If tests are failing and blocking startup:
+
+```bash
+# Use the safe dev script that requires tests to pass
+npm run dev:safe
+
+# Or use the regular dev script that skips tests
+npm run dev
+```
+
+### 📊 **Health Check**
+
+Once running, check server health:
+
+```bash
+# Health check endpoint
+curl http://localhost:3001/health
+
+# Response includes:
+{
+  "status": "ok",
+  "timestamp": "2024-01-15T10:30:00.000Z",
+  "database": "connected",
+  "uptime": 123.45
+}
+```
+
+### 🛑 **Graceful Shutdown**
+
+The server handles shutdown signals gracefully:
+
+- **Ctrl+C**: Gracefully shuts down both frontend and backend
+- **SIGTERM**: Production shutdown signal
+- **Database connections**: Properly closed to prevent data corruption
+
 4. **Set up MongoDB Atlas (Cloud Database):**
 
    We use MongoDB Atlas for a reliable, cloud-based database:

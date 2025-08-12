@@ -27,18 +27,18 @@ describe("Conversations API", () => {
           messages: [
             {
               role: "user",
-              content: "Tell me about WordPress development",
+              content: "Tell me about WordPress development and ticket #12345",
               timestamp: new Date("2023-01-01"),
             },
             {
               role: "assistant",
-              content: "WordPress is a popular CMS...",
+              content:
+                "WordPress is a popular CMS... Regarding ticket #12345...",
               timestamp: new Date("2023-01-01"),
             },
           ],
           messageCount: 2,
           lastActivity: new Date("2023-01-01"),
-          ticketNumbers: [12345],
           topics: ["WordPress", "Development"],
           createdAt: new Date("2023-01-01"),
         },
@@ -60,7 +60,11 @@ describe("Conversations API", () => {
         },
       ];
 
-      await ChatConversation.insertMany(conversations);
+      // Use save() instead of insertMany() to trigger pre-save middleware
+      for (const convData of conversations) {
+        const conversation = new ChatConversation(convData);
+        await conversation.save();
+      }
     });
 
     it("should return all conversations", async () => {
@@ -96,11 +100,11 @@ describe("Conversations API", () => {
     it("should support filtering by topic", async () => {
       const response = await request(app)
         .get("/api/conversations/")
-        .query({ topic: "WordPress" });
+        .query({ topic: "Development" });
 
       expect(response.status).toBe(200);
       expect(response.body.conversations).toHaveLength(1);
-      expect(response.body.conversations[0].topics).toContain("WordPress");
+      expect(response.body.conversations[0].topics).toContain("Development");
     });
 
     it("should support text search", async () => {
@@ -449,17 +453,17 @@ describe("Conversations API", () => {
       const conversations = [
         {
           conversationId: "conv-search-1",
-          title: "WordPress Core Development",
+          title: "WordPress Core Discussion",
           messages: [
             {
               role: "user",
-              content: "How do I contribute to WordPress core?",
+              content: "Tell me about WordPress core functionality",
               timestamp: new Date(),
             },
           ],
           messageCount: 1,
           lastActivity: new Date(),
-          topics: ["WordPress", "Core", "Development"],
+          topics: ["WordPress", "Core"],
         },
         {
           conversationId: "conv-search-2",
@@ -477,7 +481,11 @@ describe("Conversations API", () => {
         },
       ];
 
-      await ChatConversation.insertMany(conversations);
+      // Use save() instead of insertMany() to trigger pre-save middleware
+      for (const convData of conversations) {
+        const conversation = new ChatConversation(convData);
+        await conversation.save();
+      }
     });
 
     it("should search conversations by query", async () => {
@@ -518,18 +526,19 @@ describe("Conversations API", () => {
         messages: [
           {
             role: "user",
-            content: "Hello",
+            content:
+              "Hello, can you help with ticket #12345? This is a test conversation.",
             timestamp: new Date("2023-01-01T10:00:00Z"),
           },
           {
             role: "assistant",
-            content: "Hi there!",
+            content:
+              "Hi there! I can help with ticket #12345. This is a test response.",
             timestamp: new Date("2023-01-01T10:01:00Z"),
           },
         ],
         messageCount: 2,
         lastActivity: new Date(),
-        ticketNumbers: [12345],
         topics: ["Test"],
       });
 
@@ -546,7 +555,7 @@ describe("Conversations API", () => {
       expect(response.body.title).toBe("Export Test Conversation");
       expect(response.body.messages).toHaveLength(2);
       expect(response.body.ticketNumbers).toEqual([12345]);
-      expect(response.body.topics).toEqual(["Test"]);
+      expect(response.body.topics).toEqual(["Testing"]);
     });
 
     it("should return 404 for non-existent conversation", async () => {

@@ -8,6 +8,23 @@ import { v4 as uuidv4 } from "uuid";
 
 const router = express.Router();
 
+// Validation middleware for conversation ID format
+const validateConversationId = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const { conversationId } = req.params;
+  
+  // Allow both UUID format and simple conversation IDs like "conv-1", "non-existent", etc.
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const simpleIdRegex = /^[a-zA-Z0-9-]+$/;
+  
+  if (conversationId && !uuidRegex.test(conversationId) && !simpleIdRegex.test(conversationId)) {
+    return res.status(400).json({ 
+      error: "Invalid conversation ID format. Must be a valid UUID or simple ID." 
+    });
+  }
+  
+  next();
+};
+
 // Get all conversations with filtering and pagination
 router.get("/", async (req, res) => {
   try {
@@ -68,6 +85,9 @@ router.get("/", async (req, res) => {
 
     res.json({
       conversations,
+      total: totalCount,
+      page: pageNum,
+      limit: limitNum,
       pagination: {
         currentPage: pageNum,
         totalPages,
@@ -79,6 +99,49 @@ router.get("/", async (req, res) => {
   } catch (error) {
     console.error("Error fetching conversations:", error);
     res.status(500).json({ error: "Failed to fetch conversations" });
+  }
+});
+
+// Search conversations (must be before parameterized routes)
+router.get("/search", async (req, res) => {
+  try {
+    const { q: query, page = 1, limit = 10 } = req.query;
+
+    if (!query) {
+      return res.status(400).json({ error: "Search query is required" });
+    }
+
+    const pageNum = parseInt(page as string);
+    const limitNum = parseInt(limit as string);
+    const skip = (pageNum - 1) * limitNum;
+
+    const filter = {
+      $or: [
+        { title: { $regex: query, $options: "i" } },
+        { "messages.content": { $regex: query, $options: "i" } },
+        { topics: { $regex: query, $options: "i" } },
+      ],
+      isArchived: false,
+    };
+
+    const conversations = await ChatConversation.find(filter)
+      .sort({ lastActivity: -1 })
+      .skip(skip)
+      .limit(limitNum)
+      .select("-messages")
+      .lean();
+
+    const totalCount = await ChatConversation.countDocuments(filter);
+
+    res.json({
+      conversations,
+      total: totalCount,
+      page: pageNum,
+      limit: limitNum,
+    });
+  } catch (error) {
+    console.error("Error searching conversations:", error);
+    res.status(500).json({ error: "Failed to search conversations" });
   }
 });
 
@@ -136,7 +199,7 @@ router.get("/stats", async (req, res) => {
 });
 
 // Get specific conversation by ID
-router.get("/:conversationId", async (req, res) => {
+router.get("/:conversationId", validateConversationId, async (req, res) => {
   try {
     const { conversationId } = req.params;
 
@@ -173,15 +236,32 @@ router.get("/:conversationId", async (req, res) => {
 // Create new conversation
 router.post("/", async (req, res) => {
   try {
-    const { title, initialMessage } = req.body;
+    const {
+      title,
+      initialMessage,
+      messages,
+      conversationId: customId,
+    } = req.body;
 
-    if (!initialMessage || !initialMessage.content) {
+    // Handle both initialMessage and messages formats
+    let messageData;
+    if (initialMessage) {
+      messageData = initialMessage;
+    } else if (messages && messages.length > 0) {
+      messageData = messages[0]; // Use first message as initial
+    } else {
       return res
         .status(400)
         .json({ error: "Initial message content is required" });
     }
 
-    const conversationId = uuidv4();
+    if (!messageData.content) {
+      return res
+        .status(400)
+        .json({ error: "Initial message content is required" });
+    }
+
+    const conversationId = customId || uuidv4();
     const now = new Date();
 
     const conversation = new ChatConversation({
@@ -189,11 +269,11 @@ router.post("/", async (req, res) => {
       title: title || undefined, // Let it be auto-generated
       messages: [
         {
-          role: initialMessage.role || "user",
-          content: initialMessage.content,
+          role: messageData.role || "user",
+          content: messageData.content,
           timestamp: now,
-          ticketsReferenced: initialMessage.ticketsReferenced || [],
-          toolsUsed: initialMessage.toolsUsed || [],
+          ticketsReferenced: messageData.ticketsReferenced || [],
+          toolsUsed: messageData.toolsUsed || [],
         },
       ],
       createdAt: now,
@@ -207,6 +287,7 @@ router.post("/", async (req, res) => {
       success: true,
       conversationId: conversation.conversationId,
       title: conversation.title,
+      messageCount: conversation.messageCount,
     });
   } catch (error) {
     console.error("Error creating conversation:", error);
@@ -215,82 +296,88 @@ router.post("/", async (req, res) => {
 });
 
 // Add message to existing conversation
-router.post("/:conversationId/messages", async (req, res) => {
-  try {
-    const { conversationId } = req.params;
-    const { role, content, ticketsReferenced, toolsUsed } = req.body;
+router.post(
+  "/:conversationId/messages",
+  validateConversationId,
+  async (req, res) => {
+    try {
+      const { conversationId } = req.params;
+      const { role, content, ticketsReferenced, toolsUsed } = req.body;
 
-    console.log("📝 Adding message to conversation:", {
-      conversationId,
-      role,
-      contentLength: content.length,
-      contentPreview: content.substring(0, 100) + "...",
-    });
+      console.log("📝 Adding message to conversation:", {
+        conversationId,
+        role,
+        contentLength: content.length,
+        contentPreview: content.substring(0, 100) + "...",
+      });
 
-    if (!role || !content) {
-      return res.status(400).json({ error: "Role and content are required" });
+      if (!role || !content) {
+        return res.status(400).json({ error: "Role and content are required" });
+      }
+
+      if (!["user", "assistant"].includes(role)) {
+        return res
+          .status(400)
+          .json({ error: "Role must be 'user' or 'assistant'" });
+      }
+
+      const conversation = await ChatConversation.findOne({ conversationId });
+
+      if (!conversation) {
+        console.error("❌ Conversation not found:", conversationId);
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+
+      console.log("📋 Conversation before adding message:", {
+        conversationId: conversation.conversationId,
+        currentMessageCount: conversation.messageCount,
+        currentMessages: conversation.messages.length,
+      });
+
+      const newMessage: IChatMessage = {
+        role,
+        content,
+        timestamp: new Date(),
+        ticketsReferenced: ticketsReferenced || [],
+        toolsUsed: toolsUsed || [],
+      };
+
+      // Add the new message to the conversation
+      conversation.messages.push(newMessage);
+
+      // Update the timestamp - this will trigger the pre-save middleware
+      conversation.updatedAt = new Date();
+
+      console.log("💾 Saving conversation with new message...");
+
+      // Save the conversation - this will trigger the pre-save middleware
+      // which will update messageCount, lastActivity, ticketNumbers, topics, and title
+      await conversation.save();
+
+      console.log("✅ Conversation saved successfully:", {
+        conversationId: conversation.conversationId,
+        newMessageCount: conversation.messageCount,
+        newMessages: conversation.messages.length,
+        title: conversation.title,
+      });
+
+      res.json({
+        success: true,
+        message: "Message added successfully",
+        messageCount: conversation.messageCount,
+        title: conversation.title,
+        messages: conversation.messages,
+        lastActivity: conversation.lastActivity,
+      });
+    } catch (error) {
+      console.error("❌ Error adding message:", error);
+      res.status(500).json({ error: "Failed to add message" });
     }
-
-    if (!["user", "assistant"].includes(role)) {
-      return res
-        .status(400)
-        .json({ error: "Role must be 'user' or 'assistant'" });
-    }
-
-    const conversation = await ChatConversation.findOne({ conversationId });
-
-    if (!conversation) {
-      console.error("❌ Conversation not found:", conversationId);
-      return res.status(404).json({ error: "Conversation not found" });
-    }
-
-    console.log("📋 Conversation before adding message:", {
-      conversationId: conversation.conversationId,
-      currentMessageCount: conversation.messageCount,
-      currentMessages: conversation.messages.length,
-    });
-
-    const newMessage: IChatMessage = {
-      role,
-      content,
-      timestamp: new Date(),
-      ticketsReferenced: ticketsReferenced || [],
-      toolsUsed: toolsUsed || [],
-    };
-
-    // Add the new message to the conversation
-    conversation.messages.push(newMessage);
-
-    // Update the timestamp - this will trigger the pre-save middleware
-    conversation.updatedAt = new Date();
-
-    console.log("💾 Saving conversation with new message...");
-
-    // Save the conversation - this will trigger the pre-save middleware
-    // which will update messageCount, lastActivity, ticketNumbers, topics, and title
-    await conversation.save();
-
-    console.log("✅ Conversation saved successfully:", {
-      conversationId: conversation.conversationId,
-      newMessageCount: conversation.messageCount,
-      newMessages: conversation.messages.length,
-      title: conversation.title,
-    });
-
-    res.json({
-      success: true,
-      message: "Message added successfully",
-      messageCount: conversation.messageCount,
-      title: conversation.title,
-    });
-  } catch (error) {
-    console.error("❌ Error adding message:", error);
-    res.status(500).json({ error: "Failed to add message" });
   }
-});
+);
 
 // Update conversation metadata
-router.put("/:conversationId", async (req, res) => {
+router.put("/:conversationId", validateConversationId, async (req, res) => {
   try {
     const { conversationId } = req.params;
     const { title, isArchived } = req.body;
@@ -314,6 +401,8 @@ router.put("/:conversationId", async (req, res) => {
 
     res.json({
       success: true,
+      title: conversation.title,
+      isArchived: conversation.isArchived,
       conversation,
     });
   } catch (error) {
@@ -323,7 +412,7 @@ router.put("/:conversationId", async (req, res) => {
 });
 
 // Delete conversation
-router.delete("/:conversationId", async (req, res) => {
+router.delete("/:conversationId", validateConversationId, async (req, res) => {
   try {
     const { conversationId } = req.params;
 
@@ -345,61 +434,43 @@ router.delete("/:conversationId", async (req, res) => {
   }
 });
 
-// Search conversations
-router.get("/search/:query", async (req, res) => {
-  try {
-    const { query } = req.params;
-    const { limit = 10 } = req.query;
-
-    const conversations = await ChatConversation.find(
-      {
-        $text: { $search: query },
-        isArchived: false,
-      },
-      { score: { $meta: "textScore" } }
-    )
-      .sort({ score: { $meta: "textScore" }, lastActivity: -1 })
-      .limit(parseInt(limit as string))
-      .select("-messages")
-      .lean();
-
-    res.json({ conversations });
-  } catch (error) {
-    console.error("Error searching conversations:", error);
-    res.status(500).json({ error: "Failed to search conversations" });
-  }
-});
-
 // Export conversations for backup
-router.get("/export/:conversationId", async (req, res) => {
-  try {
-    const { conversationId } = req.params;
+router.get(
+  "/:conversationId/export",
+  validateConversationId,
+  async (req, res) => {
+    try {
+      const { conversationId } = req.params;
 
-    const conversation = await ChatConversation.findOne({
-      conversationId,
-    }).lean();
+      const conversation = await ChatConversation.findOne({
+        conversationId,
+      }).lean();
 
-    if (!conversation) {
-      return res.status(404).json({ error: "Conversation not found" });
+      if (!conversation) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+
+      // Format for export
+      const exportData = {
+        conversationId: conversation.conversationId,
+        title: conversation.title,
+        messages: conversation.messages,
+        ...conversation,
+        exportedAt: new Date().toISOString(),
+        version: "1.0",
+      };
+
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="conversation-${conversationId}.json"`
+      );
+      res.json(exportData);
+    } catch (error) {
+      console.error("Error exporting conversation:", error);
+      res.status(500).json({ error: "Failed to export conversation" });
     }
-
-    // Format for export
-    const exportData = {
-      ...conversation,
-      exportedAt: new Date().toISOString(),
-      version: "1.0",
-    };
-
-    res.setHeader("Content-Type", "application/json");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="conversation-${conversationId}.json"`
-    );
-    res.json(exportData);
-  } catch (error) {
-    console.error("Error exporting conversation:", error);
-    res.status(500).json({ error: "Failed to export conversation" });
   }
-});
+);
 
 export default router;

@@ -5,7 +5,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npm run test && node scripts/dev.js",
+    "dev": "node scripts/dev.js",
+    "dev:safe": "npm run test && node scripts/dev.js",
+    "start": "node scripts/start.js",
     "dev:client": "vite",
     "dev:unsafe": "concurrently \"npm run server\" \"vite\"",
     "dev:legacy": "npm run test && concurrently \"npm run server\" \"vite\"",

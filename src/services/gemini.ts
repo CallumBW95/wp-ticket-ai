@@ -526,11 +526,12 @@ public function test_specific_functionality_description() {
 INSTRUCTIONS:
 - Always be aware of the current date when answering questions
 - IMMEDIATELY use available tools when users ask about specific tickets, bugs, or WordPress development topics
-- When a user mentions a ticket number (like "ticket 63778" or "63778"), AUTOMATICALLY call get_ticket_with_comments to get full discussion context
-- When analyzing ticket discussions, patches, or development history, ALWAYS use get_ticket_with_comments for complete context
-- When asked to search for tickets, AUTOMATICALLY call searchTickets with the search terms
+- When a user mentions a ticket number (like "ticket 63778" or "63778"), AUTOMATICALLY call getTicket to get full ticket details
+- When analyzing ticket discussions, patches, or development history, ALWAYS use getTicket for complete context
 - When asked about changesets or commits, AUTOMATICALLY call getChangeset with the revision number
 - When asked about recent activity, AUTOMATICALLY call getTimeline
+- When searching for tickets by topic, use searchTickets with relevant keywords
+- When you need system information about WordPress Trac, use getTracInfo
 - When asked about WordPress code, functions, or implementation details, AUTOMATICALLY use GitHub tools:
   * search_wordpress_code - Find functions, classes, or code patterns
   * get_wordpress_file - Get complete file contents
@@ -564,7 +565,84 @@ export async function initializeGemini(apiKey: string): Promise<void> {
   const mcpTools = await getMCPTools();
 
   // Add custom ticket search tools
-  const ticketTools = getTicketSearchTools();
+  const ticketTools = [
+    {
+      name: "searchTickets",
+      description:
+        "Search for WordPress Trac tickets by keyword or filter expression. Returns ticket summaries with basic info.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Search query (keywords, ticket numbers, etc.)",
+          },
+          limit: {
+            type: "number",
+            description: "Maximum number of results to return (default: 20)",
+            default: 20,
+          },
+        },
+        required: ["query"],
+      },
+    },
+    {
+      name: "getTicket",
+      description:
+        "Get detailed information about a specific WordPress Trac ticket. Use this when you need to analyze ticket details, status, or basic information.",
+      parameters: {
+        type: "object",
+        properties: {
+          ticketId: {
+            type: "number",
+            description: "The WordPress Trac ticket ID",
+          },
+        },
+        required: ["ticketId"],
+      },
+    },
+    {
+      name: "getChangeset",
+      description:
+        "Get information about a specific changeset (commit) in WordPress Trac. Use this when analyzing code changes or development history.",
+      parameters: {
+        type: "object",
+        properties: {
+          changesetId: {
+            type: "string",
+            description: "The changeset ID (commit hash)",
+          },
+        },
+        required: ["changesetId"],
+      },
+    },
+    {
+      name: "getTimeline",
+      description:
+        "Get timeline information from WordPress Trac. Use this when you need to understand recent activity or changes.",
+      parameters: {
+        type: "object",
+        properties: {
+          days: {
+            type: "number",
+            description: "Number of days to look back (default: 7)",
+            default: 7,
+          },
+        },
+        required: [],
+      },
+    },
+    {
+      name: "getTracInfo",
+      description:
+        "Get general information about WordPress Trac. Use this for system information or status checks.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  ];
 
   // Add GitHub tools for WordPress codebase access
   const githubTools = getGitHubTools();
@@ -620,10 +698,26 @@ export async function initializeGemini(apiKey: string): Promise<void> {
 
 export async function sendMessage(
   message: string,
-  retryCount = 0
+  onThinkingStep?: (step: string) => void
 ): Promise<string> {
-  // Use the request queue to handle rate limiting and throttling
-  return requestQueue.addRequest(message);
+  try {
+    // Add thinking step for message analysis
+    const thinkingStep =
+      "🔍 Analyzing user request and determining required tools...";
+    if (onThinkingStep) onThinkingStep(thinkingStep);
+
+    // Use the request queue to handle rate limiting and throttling
+    const result = await requestQueue.addRequest(message);
+
+    // Add thinking step for response generation
+    const responseStep = "🤖 Response generated successfully";
+    if (onThinkingStep) onThinkingStep(responseStep);
+
+    return result;
+  } catch (error) {
+    console.error("Error sending message to Gemini:", error);
+    throw error;
+  }
 }
 
 export function resetChat(): void {
@@ -667,123 +761,13 @@ export function clearQueue() {
 }
 
 // Ticket search tools definition
-function getTicketSearchTools(): any[] {
-  return [
-    {
-      name: "search_wordpress_tickets",
-      description:
-        "Search WordPress Trac tickets by text query. Use this to find tickets related to specific topics, bugs, or features.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "Search query to find relevant tickets",
-          },
-          limit: {
-            type: "number",
-            description: "Maximum number of results to return (default: 10)",
-            default: 10,
-          },
-        },
-        required: ["query"],
-      },
-    },
-    {
-      name: "get_ticket_details",
-      description:
-        "Get detailed information about a specific WordPress Trac ticket by ID",
-      parameters: {
-        type: "object",
-        properties: {
-          ticketId: {
-            type: "number",
-            description: "The WordPress Trac ticket ID",
-          },
-        },
-        required: ["ticketId"],
-      },
-    },
-    {
-      name: "get_recent_tickets",
-      description: "Get recently updated WordPress Trac tickets",
-      parameters: {
-        type: "object",
-        properties: {
-          days: {
-            type: "number",
-            description: "Number of days to look back (default: 7)",
-            default: 7,
-          },
-        },
-      },
-    },
-    {
-      name: "get_tickets_by_component",
-      description: "Get WordPress Trac tickets for a specific component",
-      parameters: {
-        type: "object",
-        properties: {
-          component: {
-            type: "string",
-            description:
-              "Component name (e.g. 'Editor', 'Media', 'Themes', 'Plugins')",
-          },
-          limit: {
-            type: "number",
-            description: "Maximum number of results to return (default: 20)",
-            default: 20,
-          },
-        },
-        required: ["component"],
-      },
-    },
-    {
-      name: "get_tickets_by_status",
-      description: "Get WordPress Trac tickets by status",
-      parameters: {
-        type: "object",
-        properties: {
-          status: {
-            type: "string",
-            description:
-              "Ticket status (e.g. 'new', 'assigned', 'accepted', 'reviewing', 'closed')",
-          },
-          limit: {
-            type: "number",
-            description: "Maximum number of results to return (default: 20)",
-            default: 20,
-          },
-        },
-        required: ["status"],
-      },
-    },
-    {
-      name: "get_ticket_with_comments",
-      description:
-        "Get detailed information about a specific WordPress Trac ticket with full comment data. Use this when you need to analyze ticket discussions, patches, or development history.",
-      parameters: {
-        type: "object",
-        properties: {
-          ticketId: {
-            type: "number",
-            description: "The WordPress Trac ticket ID",
-          },
-        },
-        required: ["ticketId"],
-      },
-    },
-  ];
-}
-
 function isTicketSearchTool(toolName: string): boolean {
   const ticketTools = [
-    "search_wordpress_tickets",
-    "get_ticket_details",
-    "get_recent_tickets",
-    "get_tickets_by_component",
-    "get_tickets_by_status",
-    "get_ticket_with_comments",
+    "searchTickets",
+    "getTicket",
+    "getChangeset",
+    "getTimeline",
+    "getTracInfo",
   ];
 
   return ticketTools.includes(toolName);
@@ -801,37 +785,98 @@ function isGitHubTool(toolName: string): boolean {
   return githubTools.includes(toolName);
 }
 
+// Add thinking steps for tool usage
+function addToolThinkingStep(toolName: string, args: any): string {
+  const step = `🔧 Using ${toolName} tool`;
+  if (args && Object.keys(args).length > 0) {
+    const argStr = Object.entries(args)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join(", ");
+    return `${step} with arguments: ${argStr}`;
+  }
+  return step;
+}
+
+// Helper function to call MCP server directly
+async function callMCPServer(toolName: string, args: any): Promise<any> {
+  try {
+    const response = await fetch("/api/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: `mcp-${Date.now()}`,
+        method: "tools/call",
+        params: {
+          name: toolName,
+          arguments: args,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `MCP server error: ${response.status} ${response.statusText}`
+      );
+    }
+
+    const data = await response.json();
+
+    if (data.error) {
+      throw new Error(`MCP tool error: ${data.error.message || data.error}`);
+    }
+
+    // Extract the content from the MCP response
+    if (data.result && data.result.content && data.result.content.length > 0) {
+      const content = data.result.content[0];
+      if (content.type === "text") {
+        try {
+          return JSON.parse(content.text);
+        } catch {
+          return content.text;
+        }
+      }
+      return content;
+    }
+
+    return data.result || data;
+  } catch (error) {
+    console.error(`Error calling MCP server for ${toolName}:`, error);
+    throw error;
+  }
+}
+
+// Update the tool calling functions to include thinking steps
 async function callTicketTool(
   toolName: string,
   args: any
 ): Promise<MCPToolResult> {
   try {
+    const thinkingStep = addToolThinkingStep(toolName, args);
+    console.log(thinkingStep);
+
     let result: any;
 
     switch (toolName) {
-      case "search_wordpress_tickets":
+      case "searchTickets":
         result = await TicketService.searchTickets(args.query, args.limit);
         break;
-      case "get_ticket_details":
+      case "getTicket":
         result = await TicketService.getTicketDetails(args.ticketId);
         break;
-      case "get_recent_tickets":
-        result = await TicketService.getRecentTickets(args.days);
+      case "getChangeset":
+        // Call MCP server directly for changeset info
+        result = await callMCPServer("getChangeset", args);
         break;
-      case "get_tickets_by_component":
-        result = await TicketService.getTicketsByComponent(
-          args.component,
-          args.limit
-        );
+      case "getTimeline":
+        // Call MCP server directly for timeline info
+        result = await callMCPServer("getTimeline", args);
         break;
-      case "get_tickets_by_status":
-        result = await TicketService.getTicketsByStatus(
-          args.status,
-          args.limit
-        );
-        break;
-      case "get_ticket_with_comments":
-        result = await TicketService.getTicketWithFullComments(args.ticketId);
+      case "getTracInfo":
+        // Call MCP server directly for trac info
+        result = await callMCPServer("getTracInfo", args);
         break;
       default:
         throw new Error(`Unknown ticket tool: ${toolName}`);
@@ -852,6 +897,60 @@ async function callTicketTool(
         {
           type: "text",
           text: `Error calling ticket tool ${toolName}: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+async function callGitHubTool(
+  toolName: string,
+  args: any
+): Promise<MCPToolResult> {
+  try {
+    const thinkingStep = addToolThinkingStep(toolName, args);
+    console.log(thinkingStep);
+
+    let result: any;
+
+    switch (toolName) {
+      case "search_wordpress_code":
+        result = await getGitHubTools().find(args.query);
+        break;
+      case "get_wordpress_file":
+        result = await getGitHubTools().getFileContent(args.filePath);
+        break;
+      case "get_wordpress_directory":
+        result = await getGitHubTools().getDirectoryContent(args.path);
+        break;
+      case "get_wordpress_commit":
+        result = await getGitHubTools().getCommitDetails(args.commitHash);
+        break;
+      case "search_wordpress_commits":
+        result = await getGitHubTools().searchCommits(args.query);
+        break;
+      default:
+        throw new Error(`Unknown GitHub tool: ${toolName}`);
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(result, null, 2),
+        },
+      ],
+      isError: false,
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Error calling GitHub tool ${toolName}: ${
             error instanceof Error ? error.message : "Unknown error"
           }`,
         },

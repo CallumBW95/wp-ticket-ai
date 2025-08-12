@@ -114,33 +114,13 @@ ChatConversationSchema.index({ isArchived: 1, lastActivity: -1 });
 ChatConversationSchema.methods.generateTitle = function (): string {
   const conversation = this as IChatConversation;
 
-  // Priority 1: If ticket numbers are present in user messages (main topic)
-  const userTicketNumbers = new Set<number>();
-  for (const message of conversation.messages) {
-    if (message.role === "user") {
-      const tickets = (this as any).extractTicketNumbers(message.content);
-      tickets.forEach((t: number) => userTicketNumbers.add(t));
-    }
-  }
-  const mainTicketNumbers = Array.from(userTicketNumbers).sort((a, b) => a - b);
-
-  if (mainTicketNumbers.length > 0) {
-    if (mainTicketNumbers.length === 1) {
-      return `Discussion: Ticket #${mainTicketNumbers[0]}`;
-    } else if (mainTicketNumbers.length <= 3) {
-      return `Discussion: Tickets #${mainTicketNumbers.join(", #")}`;
-    } else {
-      return `Discussion: ${mainTicketNumbers.length} WordPress Tickets`;
-    }
-  }
-
-  // Priority 2: If topics are identified
+  // Priority 1: If topics are identified (removed ticket number priority)
   if (conversation.topics.length > 0) {
     const primaryTopic = conversation.topics[0];
     return `WordPress Discussion: ${primaryTopic}`;
   }
 
-  // Priority 3: Extract from first user message
+  // Priority 2: Extract from first user message
   if (conversation.messages.length > 0) {
     const firstUserMessage = conversation.messages.find(
       (m) => m.role === "user"

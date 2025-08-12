@@ -489,42 +489,104 @@
     /* Markdown Lists */
     .markdown-ul,
     .markdown-ol {
-      margin: 0.5rem 0;
+      margin: 0.25rem 0;
       padding-left: 1.5rem;
       list-style-position: outside;
-    }
-
-    .markdown-li {
-      margin: 0.25rem 0;
-      line-height: 1.5;
-      padding-left: 0.25rem;
-    }
-
-    /* Regular markdown lists (fallback) */
-    .markdown-ul ul,
-    .markdown-ol ol {
-      margin: 0.25rem 0;
-    }
-
-    .markdown-ul li,
-    .markdown-ol li {
-      margin: 0.125rem 0;
-    }
-    
-    /* Override any default browser list styles */
-    .markdown-ul,
-    .markdown-ol {
-      margin-block-start: 0.5rem;
-      margin-block-end: 0.5rem;
-      margin-inline-start: 0;
-      margin-inline-end: 0;
-    }
-
-    .markdown-li {
+      /* Override browser defaults */
       margin-block-start: 0.25rem;
       margin-block-end: 0.25rem;
       margin-inline-start: 0;
       margin-inline-end: 0;
+    }
+
+    .markdown-li {
+      margin: 0.125rem 0;
+      line-height: 1.5;
+      padding-left: 0.25rem;
+      /* Override browser defaults */
+      margin-block-start: 0.125rem;
+      margin-block-end: 0.125rem;
+      margin-inline-start: 0;
+      margin-inline-end: 0;
+    }
+
+    /* Nested lists */
+    .markdown-ul .markdown-ul,
+    .markdown-ol .markdown-ol,
+    .markdown-ul .markdown-ol,
+    .markdown-ol .markdown-ul {
+      margin: 0.125rem 0;
+      padding-left: 1rem;
+    }
+
+    .markdown-ul .markdown-li,
+    .markdown-ol .markdown-li {
+      margin: 0.0625rem 0;
+    }
+
+    /* Remove any default browser list styling that might interfere */
+    .markdown-ul,
+    .markdown-ol {
+      list-style-type: disc;
+    }
+
+    .markdown-ol {
+      list-style-type: decimal;
+    }
+
+    /* Ensure list items don't have excessive spacing */
+    .markdown-li > *:first-child {
+      margin-top: 0;
+    }
+
+    .markdown-li > *:last-child {
+      margin-bottom: 0;
+    }
+
+    /* Additional browser overrides for lists */
+    .markdown-ul,
+    .markdown-ol {
+      /* Reset any browser defaults */
+      -webkit-margin-before: 0.25rem;
+      -webkit-margin-after: 0.25rem;
+      -webkit-margin-start: 0;
+      -webkit-margin-end: 0;
+      -webkit-padding-start: 1.5rem;
+      
+      /* Firefox specific */
+      -moz-margin-start: 0;
+      -moz-margin-end: 0;
+      
+      /* Ensure consistent spacing */
+      box-sizing: border-box;
+    }
+
+    .markdown-li {
+      /* Reset any browser defaults */
+      -webkit-margin-before: 0.125rem;
+      -webkit-margin-after: 0.125rem;
+      -webkit-margin-start: 0;
+      -webkit-margin-end: 0;
+      
+      /* Firefox specific */
+      -moz-margin-start: 0;
+      -moz-margin-end: 0;
+      
+      /* Ensure consistent spacing */
+      box-sizing: border-box;
+    }
+
+    /* Handle any remaining spacing issues */
+    .markdown-ul + .markdown-ul,
+    .markdown-ol + .markdown-ol,
+    .markdown-ul + .markdown-ol,
+    .markdown-ol + .markdown-ul {
+      margin-top: 0.25rem;
+    }
+
+    /* Ensure paragraphs within list items don't add extra spacing */
+    .markdown-li .markdown-p {
+      margin: 0.125rem 0;
     }
     
     .markdown-blockquote {
@@ -1151,4 +1213,169 @@
   .username-highlight::before {
     background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.05) 50%, transparent 100%);
   }
+}
+
+/* Thinking Steps Display */
+.thinking-container {
+  background-color: var(--surface);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  margin: 1rem 0;
+  overflow: hidden;
+}
+
+.thinking-header {
+  padding: 0.75rem 1rem;
+  background-color: var(--surface-light);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.thinking-toggle {
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.thinking-toggle:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.thinking-count {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: normal;
+}
+
+.thinking-steps {
+  padding: 1rem;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.thinking-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.thinking-step:last-child {
+  border-bottom: none;
+}
+
+.thinking-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+  margin-top: 0.125rem;
+}
+
+.thinking-text {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.4;
+  flex: 1;
+}
+
+/* Mobile responsive thinking steps */
+@media (max-width: 768px) {
+  .thinking-container {
+    margin: 0.5rem 0;
+  }
+  
+  .thinking-header {
+    padding: 0.5rem 0.75rem;
+  }
+  
+  .thinking-steps {
+    padding: 0.75rem;
+    max-height: 250px;
+  }
+  
+  .thinking-step {
+    padding: 0.375rem 0;
+    gap: 0.5rem;
+  }
+  
+  .thinking-text {
+    font-size: 0.8rem;
+  }
+}
+
+.chatbot.full-width {
+  max-width: none;
+  margin: 0;
+}
+
+.chatbot.constrained-width {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.chatbot.constrained-width .chatbot-header,
+.chatbot.constrained-width .message-list,
+.chatbot.constrained-width .message-input {
+  /* Extend background to full viewport width */
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+}
+
+/* Preserve inner content alignment by compensating padding */
+.chatbot.constrained-width .chatbot-header {
+  padding-left: calc(2rem + (50vw - 50%));
+  padding-right: calc(2rem + (50vw - 50%));
+}
+
+.chatbot.constrained-width .message-list {
+  padding-left: calc(1rem + (50vw - 50%));
+  padding-right: calc(1rem + (50vw - 50%));
+}
+
+.chatbot.constrained-width .message-input {
+  padding-left: calc(1rem + (50vw - 50%));
+  padding-right: calc(1rem + (50vw - 50%));
+}
+
+.width-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background-color: var(--surface);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.width-toggle-btn:hover:not(:disabled) {
+  background-color: var(--surface-light);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.width-toggle-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.width-toggle-btn svg {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
 }

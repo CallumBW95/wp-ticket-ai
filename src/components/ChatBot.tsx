@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Message, ChatState } from "../types";
 import { sendMessage, getQueueStatus } from "../services/gemini";
 import MessageList from "./MessageList";
@@ -10,12 +10,13 @@ import {
   extractTicketNumbers,
 } from "../services/conversations";
 import { IChatConversation } from "../../server/models/ChatConversation";
-import { Plus } from "lucide-react";
+import { Plus, Maximize2, Minimize2 } from "lucide-react";
 
 const initialState: ChatState = {
   messages: [],
   isLoading: false,
   error: null,
+  showThinking: false, // Whether to show thinking steps
 };
 
 interface ChatBotProps {
@@ -44,6 +45,41 @@ function ChatBot({
     queueLength: 0,
     isProcessing: false,
   });
+
+  // Width mode: full or constrained
+  const [isFullWidth, setIsFullWidth] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const stored = localStorage.getItem("chatWidthMode");
+    return stored ? stored === "full" : true;
+  });
+
+  const toggleWidthMode = useCallback(() => {
+    setIsFullWidth((prev) => {
+      const next = !prev;
+      localStorage.setItem("chatWidthMode", next ? "full" : "constrained");
+      return next;
+    });
+  }, []);
+
+  // Use ref for thinking steps to prevent re-renders
+  const thinkingStepsRef = useRef<string[]>([]);
+  const [showThinking, setShowThinking] = useState(false);
+  const [thinkingUpdateTrigger, setThinkingUpdateTrigger] = useState(0);
+
+  // Force update thinking steps display
+  const forceThinkingUpdate = useCallback(() => {
+    setThinkingUpdateTrigger((prev) => prev + 1);
+  }, []);
+
+  // Batch thinking steps update
+  const addThinkingStepBatch = useCallback(
+    (steps: string[]) => {
+      steps.forEach((step) => thinkingStepsRef.current.push(step));
+      setShowThinking(true);
+      forceThinkingUpdate(); // Only update once for the batch
+    },
+    [forceThinkingUpdate]
+  );
 
   // Monitor queue status
   useEffect(() => {
@@ -229,14 +265,24 @@ function ChatBot({
         console.log("🔍 Ensuring conversation exists...");
         // Ensure we have a conversation to save to and get the conversation ID
         const conversationId = await ensureConversation(userMessage);
-        
+
         console.log("🔑 Got conversation ID:", conversationId);
-        
+
         // Check if this is a new conversation (we didn't have a conversation ID before)
         const isNewConversation = !currentConversationId;
-        
+
         // Set the conversation ID immediately
         setCurrentConversationId(conversationId);
+
+        // Clear previous thinking steps and start new ones
+        thinkingStepsRef.current = [];
+        setShowThinking(false);
+
+        // Add initial thinking steps in batch
+        addThinkingStepBatch([
+          "✅ Conversation created/loaded",
+          "🔍 Analyzing user request...",
+        ]);
 
         // Add message to history
         setMessageHistory((prev) => {
@@ -261,16 +307,31 @@ function ChatBot({
         // Only save additional messages to existing conversations
         if (!isNewConversation) {
           console.log("💾 Saving user message to existing conversation...");
-          await saveMessageToConversation(userMessage, undefined, conversationId);
+          addThinkingStepBatch(["💾 Saving user message to conversation..."]);
+          await saveMessageToConversation(
+            userMessage,
+            undefined,
+            conversationId
+          );
+          addThinkingStepBatch(["✅ User message saved"]);
         } else {
-          console.log("💾 Skipping user message save - already included in new conversation");
+          console.log(
+            "💾 Skipping user message save - already included in new conversation"
+          );
+          addThinkingStepBatch([
+            "💾 User message included in new conversation",
+          ]);
         }
 
         console.log("🤖 Sending message to AI...");
+        addThinkingStepBatch(["🤖 Sending request to AI..."]);
         // Send message to AI
-        const response = await sendMessage(content);
+        const response = await sendMessage(content, (step) => {
+          addThinkingStepBatch([step]);
+        });
 
         console.log("📨 AI response received, length:", response.length);
+        addThinkingStepBatch(["📨 AI response received"]);
 
         const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
@@ -280,6 +341,7 @@ function ChatBot({
         };
 
         console.log("📝 Adding assistant message to UI...");
+        addThinkingStepBatch(["📝 Processing AI response..."]);
         // Add assistant message to UI first
         setChatState((prev) => ({
           ...prev,
@@ -288,6 +350,7 @@ function ChatBot({
         }));
 
         console.log("💾 Saving assistant message to conversation...");
+        addThinkingStepBatch(["💾 Saving AI response to conversation..."]);
         // Save assistant message to conversation using the conversation ID directly
         try {
           await saveMessageToConversation(
@@ -296,16 +359,21 @@ function ChatBot({
             conversationId
           );
           console.log("✅ Assistant message saved successfully");
+          addThinkingStepBatch(["✅ AI response saved"]);
         } catch (saveError) {
           console.error(
             "❌ Failed to save assistant message to conversation:",
             saveError
           );
+          addThinkingStepBatch(["❌ Failed to save AI response"]);
           // Don't throw the error - the message is already shown in the UI
           // We could add a visual indicator that the message wasn't saved
         }
+
+        addThinkingStepBatch(["✅ Request completed successfully"]);
       } catch (error) {
         console.error("❌ Error in handleSendMessage:", error);
+        addThinkingStepBatch(["❌ Error occurred during processing"]);
 
         // Enhanced frontend error handling
         let userFriendlyMessage = "Something went wrong";
@@ -315,13 +383,16 @@ function ChatBot({
           // Check for specific error types
           if (error.name === "GeminiError") {
             userFriendlyMessage = error.message;
+            addThinkingStepBatch(["❌ Gemini API error"]);
             // Gemini errors already include actionable advice
           } else if (error.message.includes("Failed to create conversation")) {
             userFriendlyMessage = "Unable to start conversation";
             actionableAdvice = "Check your internet connection and try again";
+            addThinkingStepBatch(["❌ Failed to create conversation"]);
           } else if (error.message.includes("Failed to save message")) {
             userFriendlyMessage = "Message couldn't be saved";
             actionableAdvice = "Your message was sent but not saved to history";
+            addThinkingStepBatch(["❌ Failed to save message"]);
           } else if (
             error.message.includes("network") ||
             error.message.includes("fetch")
@@ -329,30 +400,37 @@ function ChatBot({
             userFriendlyMessage = "Network connection error";
             actionableAdvice =
               "Please check your internet connection and try again";
+            addThinkingStepBatch(["❌ Network connection error"]);
           } else if (error.message.includes("timeout")) {
             userFriendlyMessage = "Request timed out";
             actionableAdvice =
               "The request took too long. Try sending a shorter message";
+            addThinkingStepBatch(["❌ Request timed out"]);
           } else if (error.message.includes("model overloaded")) {
             userFriendlyMessage = "AI model is currently busy";
             actionableAdvice =
               "Please wait a moment and try again. The model is handling many requests.";
+            addThinkingStepBatch(["❌ AI model overloaded"]);
           } else if (error.message.includes("safety filters")) {
             userFriendlyMessage = "Message blocked by safety filters";
             actionableAdvice =
               "Please rephrase your message to avoid triggering safety filters.";
+            addThinkingStepBatch("❌ Message blocked by safety filters");
           } else if (error.message.includes("API key")) {
             userFriendlyMessage = "API configuration error";
             actionableAdvice =
               "Please check your API key configuration and try again.";
+            addThinkingStepBatch(["❌ API configuration error"]);
           } else if (error.message.includes("rate limit")) {
             userFriendlyMessage = "Too many requests";
             actionableAdvice =
               "Please wait a moment before sending another message.";
+            addThinkingStepBatch(["❌ Rate limit exceeded"]);
           } else {
             userFriendlyMessage = error.message;
             actionableAdvice =
               "Please try again or contact support if the problem persists.";
+            addThinkingStepBatch(["❌ Unknown error occurred"]);
           }
         }
 
@@ -374,18 +452,25 @@ function ChatBot({
         if (currentConversationId) {
           try {
             console.log("💾 Saving error message to conversation...");
+            addThinkingStepBatch([
+              "💾 Saving error details to conversation...",
+            ]);
             await saveMessageToConversation(
               errorMessage,
               undefined,
               currentConversationId
             );
             console.log("✅ Error message saved successfully");
+            addThinkingStepBatch(["✅ Error details saved"]);
           } catch (saveError) {
             console.error(
               "❌ Failed to save error message to conversation:",
               saveError
             );
+            addThinkingStepBatch(["❌ Failed to save error details"]);
           }
+
+          addThinkingStepBatch(["❌ Request failed"]);
         }
       }
     },
@@ -452,8 +537,31 @@ function ChatBot({
     [messageHistory, historyIndex]
   );
 
+  // Toggle thinking visibility
+  const toggleThinking = useCallback(() => {
+    setShowThinking(!showThinking);
+  }, [showThinking]);
+
+  // Add thinking step
+  const addThinkingStep = useCallback(
+    (step: string) => {
+      thinkingStepsRef.current.push(step);
+      setShowThinking(true);
+      forceThinkingUpdate(); // Force re-render to show new step
+    },
+    [forceThinkingUpdate]
+  );
+
+  // Clear thinking steps
+  const clearThinking = useCallback(() => {
+    thinkingStepsRef.current = [];
+    setShowThinking(false);
+  }, []);
+
   return (
-    <div className="chatbot">
+    <div
+      className={`chatbot ${isFullWidth ? "full-width" : "constrained-width"}`}
+    >
       <div className="chatbot-header">
         <div className="chatbot-header-left">
           {onSidebarToggle && (
@@ -487,6 +595,15 @@ function ChatBot({
           </div>
         </div>
         <div className="chatbot-header-actions">
+          <button
+            onClick={toggleWidthMode}
+            className="width-toggle-btn"
+            title={isFullWidth ? "Constrain chat width" : "Use full width"}
+            aria-label="Toggle chat width"
+            disabled={isLoadingConversation}
+          >
+            {isFullWidth ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
           {currentConversationId && (
             <span
               className="conversation-indicator"
@@ -530,8 +647,42 @@ function ChatBot({
             error={chatState.error}
           />
 
+          {/* Thinking Steps Display */}
+          {showThinking && (
+            <div className="thinking-container" key={thinkingUpdateTrigger}>
+              <div className="thinking-header">
+                <button
+                  className="thinking-toggle"
+                  onClick={toggleThinking}
+                  title="Toggle thinking steps visibility"
+                >
+                  {showThinking ? "🔽" : "🔼"} Show Thinking
+                  <span className="thinking-count">
+                    ({thinkingStepsRef.current.length})
+                  </span>
+                </button>
+              </div>
+
+              {showThinking && (
+                <div className="thinking-steps">
+                  {thinkingStepsRef.current.map((step, index) => (
+                    <div
+                      key={`${thinkingUpdateTrigger}-${index}`}
+                      className="thinking-step"
+                    >
+                      <span className="thinking-icon">💭</span>
+                      <span className="thinking-text">{step}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Message Input */}
           <MessageInput
             onSendMessage={handleSendMessage}
+            isLoading={chatState.isLoading}
             disabled={chatState.isLoading || isLoadingConversation}
             onHistoryNavigation={handleHistoryNavigation}
           />

@@ -10,6 +10,20 @@ export async function findAvailablePort(
   startPort: number,
   maxAttempts: number = 10
 ): Promise<number> {
+  if (startPort < 1 || startPort > 65535) {
+    throw new Error(
+      `Invalid start port: ${startPort}. Port must be between 1 and 65535.`
+    );
+  }
+
+  if (maxAttempts < 1 || maxAttempts > 100) {
+    throw new Error(
+      `Invalid max attempts: ${maxAttempts}. Must be between 1 and 100.`
+    );
+  }
+
+  console.log(`🔍 Searching for available port starting from ${startPort}...`);
+
   for (let i = 0; i < maxAttempts; i++) {
     const port = startPort + i;
 
@@ -31,24 +45,25 @@ export async function findAvailablePort(
         });
       });
 
+      console.log(`✅ Found available port: ${port}`);
       return port;
     } catch (error) {
       if (i === maxAttempts - 1) {
+        const endPort = startPort + maxAttempts - 1;
         throw new Error(
-          `No available ports found in range ${startPort}-${
-            startPort + maxAttempts - 1
-          }`
+          `❌ No available ports found in range ${startPort}-${endPort}!\n` +
+            `🔧 All ports in this range are currently in use.\n` +
+            `💡 Try:\n` +
+            `   1. Stopping other services using these ports\n` +
+            `   2. Using a different port range\n` +
+            `   3. Setting a custom port via PORT environment variable`
         );
       }
-      // Continue to next port
+      console.log(`⚠️  Port ${port} is in use, trying next port...`);
     }
   }
 
-  throw new Error(
-    `No available ports found in range ${startPort}-${
-      startPort + maxAttempts - 1
-    }`
-  );
+  throw new Error("Unexpected error in port finding logic");
 }
 
 /**
@@ -60,10 +75,18 @@ export function getDefaultPort(): number {
   if (envPort) {
     const port = parseInt(envPort, 10);
     if (!isNaN(port) && port > 0 && port < 65536) {
+      console.log(`🔧 Using port from PORT environment variable: ${port}`);
       return port;
+    } else {
+      console.warn(
+        `⚠️  Invalid PORT environment variable: "${envPort}". Using default port 3001.`
+      );
     }
   }
-  return 3001; // Default fallback
+
+  const defaultPort = 3001;
+  console.log(`🔧 Using default port: ${defaultPort}`);
+  return defaultPort;
 }
 
 /**
@@ -80,10 +103,21 @@ export async function findPort(preferredPort?: number): Promise<number> {
       console.log(
         `⚠️  Port ${startPort} is in use, using port ${port} instead`
       );
+    } else {
+      console.log(`✅ Using preferred port: ${port}`);
     }
     return port;
   } catch (error) {
-    console.error("Failed to find available port:", error);
+    console.error("❌ CRITICAL ERROR: Failed to find available port!");
+    console.error("");
+    console.error(
+      "🔍 Error details:",
+      error instanceof Error ? error.message : String(error)
+    );
+    console.error("");
+    console.error(
+      "🚫 Server startup failed. Please resolve the port conflict and try again."
+    );
     throw error;
   }
 }
